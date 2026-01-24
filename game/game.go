@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -250,7 +249,7 @@ func (g *Game) renderEndScreen(width, height int) {
 	if g.state.Victory {
 		lines = []string{
 			"╔══════════════════════════════════════╗",
-			"║            🎉 VICTORY! 🎉            ║",
+			"║            o VICTORY! o              ║",
 			"║                                      ║",
 			"║   You've conquered all the dungeons! ║",
 			"║                                      ║",
@@ -258,12 +257,13 @@ func (g *Game) renderEndScreen(width, height int) {
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
 			"║                                      ║",
 			"║      Press ENTER or SPACE to exit    ║",
+			"║ (none of the vi :q nonsense to die!) ",
 			"╚══════════════════════════════════════╝",
 		}
 	} else {
 		lines = []string{
 			"╔══════════════════════════════════════╗",
-			"║            💀 GAME OVER 💀           ║",
+			"║            x GAME OVER x             ║",
 			"║                                      ║",
 			"║   The bugs and scope creeps won...   ║",
 			"║                                      ║",
@@ -271,13 +271,14 @@ func (g *Game) renderEndScreen(width, height int) {
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
 			"║                                      ║",
 			"║      Press ENTER or SPACE to exit    ║",
+			"║ (none of the vi :q nonsense to die!) ",
 			"╚══════════════════════════════════════╝",
 		}
 	}
 
 	startY := (height - len(lines)) / 2
+	startX := (width - stringWidth(lines[0])) / 2 // Use first line (top border) for consistent alignment
 	for i, line := range lines {
-		startX := (width - stringWidth(line)) / 2
 		col := 0
 		for _, ch := range line {
 			g.screen.SetContent(startX+col, startY+i, ch, nil, centerStyle)
@@ -287,5 +288,5 @@ func (g *Game) renderEndScreen(width, height int) {
 }
 
 func stringWidth(s string) int {
-	return len([]rune(strings.TrimSpace(s))) + 2
+	return len([]rune(s))
 }
