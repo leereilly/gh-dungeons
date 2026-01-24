@@ -7,32 +7,36 @@ import (
 const VisionRadius = 7
 
 type GameState struct {
-	Player      *Entity
-	Enemies     []*Entity
-	Potions     []*Entity
-	Dungeon     *Dungeon
-	Level       int
-	MaxLevel    int
-	DoorX       int
-	DoorY       int
-	Visible     [][]bool
-	Explored    [][]bool
-	GameOver    bool
-	Victory     bool
+	Player        *Entity
+	Enemies       []*Entity
+	Potions       []*Entity
+	Dungeon       *Dungeon
+	Level         int
+	MaxLevel      int
+	DoorX         int
+	DoorY         int
+	Visible       [][]bool
+	Explored      [][]bool
+	GameOver      bool
+	Victory       bool
 	EnemiesKilled int
-	Message     string
-	CodeFiles   []CodeFile
-	RNG         *rand.Rand
+	Message       string
+	CodeFiles     []CodeFile
+	RNG           *rand.Rand
+	TermWidth     int
+	TermHeight    int
 }
 
-func NewGameState(codeFiles []CodeFile, seed int64) *GameState {
+func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
 	rng := rand.New(rand.NewSource(seed))
 	
 	gs := &GameState{
-		Level:     1,
-		MaxLevel:  5,
-		CodeFiles: codeFiles,
-		RNG:       rng,
+		Level:      1,
+		MaxLevel:   5,
+		CodeFiles:  codeFiles,
+		RNG:        rng,
+		TermWidth:  termWidth,
+		TermHeight: termHeight,
 	}
 	
 	gs.generateLevel()
@@ -40,7 +44,15 @@ func NewGameState(codeFiles []CodeFile, seed int64) *GameState {
 }
 
 func (gs *GameState) generateLevel() {
-	width, height := 160, 48
+	// Reserve 3 lines for UI at bottom (status bar, message, buffer)
+	width := gs.TermWidth
+	height := gs.TermHeight - 3
+	if width < 40 {
+		width = 40
+	}
+	if height < 20 {
+		height = 20
+	}
 	
 	// Pick a code file for this level
 	var codeFile *CodeFile
@@ -391,4 +403,10 @@ func mod2pi(x float64) float64 {
 		x += twoPi
 	}
 	return x
+}
+
+func (gs *GameState) Resize(termWidth, termHeight int) {
+	gs.TermWidth = termWidth
+	gs.TermHeight = termHeight
+	gs.generateLevel()
 }

@@ -42,7 +42,8 @@ func New() (*Game, error) {
 	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
 	screen.Clear()
 
-	state := NewGameState(codeFiles, seed)
+	width, height := screen.Size()
+	state := NewGameState(codeFiles, seed, width, height)
 
 	return &Game{
 		screen: screen,
@@ -65,6 +66,8 @@ func (g *Game) Run() error {
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			g.screen.Sync()
+			width, height := g.screen.Size()
+			g.state.Resize(width, height)
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
 				return nil
@@ -128,7 +131,7 @@ func (g *Game) render() {
 
 	// Calculate offsets to center the dungeon
 	offsetX := (width - dungeon.Width) / 2
-	offsetY := (height - dungeon.Height - 2) / 2 // -2 for UI bar
+	offsetY := (height - dungeon.Height - 3) / 2 // -3 for UI bar and message
 	if offsetX < 0 {
 		offsetX = 0
 	}
@@ -139,7 +142,7 @@ func (g *Game) render() {
 	// Styles
 	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
-	codeStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
+	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
 	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
 	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
@@ -176,12 +179,17 @@ func (g *Game) render() {
 					style = fogStyle
 				}
 			case TileFloor:
-				// Show code character if available
+				// Show code character if available (2x density)
 				if len(codeLines) > 0 {
-					lineIdx := y % len(codeLines)
+					// Use both y and x/40 to show 2x more code lines
+					lineIdx := (y*2 + x/40) % len(codeLines)
 					line := codeLines[lineIdx]
-					if x < len(line) {
-						ch = rune(line[x])
+					charIdx := x % 40
+					if x >= 40 {
+						charIdx = x - 40
+					}
+					if charIdx < len(line) {
+						ch = rune(line[charIdx])
 					} else {
 						ch = '.'
 					}
