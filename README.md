@@ -2,6 +2,8 @@
 
 A roguelike dungeon crawler that turns your codebase into a playable game! This GitHub CLI extension procedurally generates dungeons using your repository's code files.
 
+![Demo GIF](assets/demo.gif)
+
 ## Installation
 
 ```bash
