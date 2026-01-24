@@ -50,7 +50,7 @@ func NewScopeCreep(x, y int) *Entity {
 		HP:     3,
 		MaxHP:  3,
 		Damage: 2,
-		Symbol: 'c',
+		Symbol: 's',
 	}
 }
 
