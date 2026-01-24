@@ -65,6 +65,15 @@ Survive 5 dungeon levels by finding the hidden door `>` on each floor. Kill bugs
 4. Generates deterministic dungeons using Binary Space Partitioning
 5. Your code appears as the dungeon floor background!
 
+### Dungeon Generation
+
+Dungeons are procedurally generated using **Binary Space Partitioning (BSP) trees**:
+
+1. **Partitioning** - The map starts as a single rectangle, then recursively splits into smaller sections (either horizontally or vertically) based on the area's aspect ratio
+2. **Room creation** - Each leaf node of the BSP tree becomes a room with randomized dimensions (6-15 tiles)
+3. **Corridor carving** - Rooms are connected via L-shaped corridors by traversing the BSP tree and linking sibling nodes
+4. **Deterministic seeding** - A SHA hash of your code files seeds the RNG, so the same repository always generates the same dungeon layouts
+
 ## License
 
 MIT

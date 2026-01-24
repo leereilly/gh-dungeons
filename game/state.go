@@ -40,7 +40,7 @@ func NewGameState(codeFiles []CodeFile, seed int64) *GameState {
 }
 
 func (gs *GameState) generateLevel() {
-	width, height := 80, 24
+	width, height := 160, 48
 	
 	// Pick a code file for this level
 	var codeFile *CodeFile

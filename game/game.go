@@ -126,6 +126,16 @@ func (g *Game) render() {
 	width, height := g.screen.Size()
 	dungeon := g.state.Dungeon
 
+	// Calculate offsets to center the dungeon
+	offsetX := (width - dungeon.Width) / 2
+	offsetY := (height - dungeon.Height - 2) / 2 // -2 for UI bar
+	if offsetX < 0 {
+		offsetX = 0
+	}
+	if offsetY < 0 {
+		offsetY = 0
+	}
+
 	// Styles
 	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
@@ -150,7 +160,7 @@ func (g *Game) render() {
 			explored := g.state.Explored[y][x]
 
 			if !explored {
-				g.screen.SetContent(x, y, ' ', nil, tcell.StyleDefault)
+				g.screen.SetContent(offsetX+x, offsetY+y, ' ', nil, tcell.StyleDefault)
 				continue
 			}
 
@@ -192,37 +202,37 @@ func (g *Game) render() {
 				}
 			}
 
-			g.screen.SetContent(x, y, ch, nil, style)
+			g.screen.SetContent(offsetX+x, offsetY+y, ch, nil, style)
 		}
 	}
 
 	// Render potions
 	for _, potion := range g.state.Potions {
 		if g.state.Visible[potion.Y][potion.X] {
-			g.screen.SetContent(potion.X, potion.Y, potion.Symbol, nil, potionStyle)
+			g.screen.SetContent(offsetX+potion.X, offsetY+potion.Y, potion.Symbol, nil, potionStyle)
 		}
 	}
 
 	// Render enemies
 	for _, enemy := range g.state.Enemies {
 		if enemy.IsAlive() && g.state.Visible[enemy.Y][enemy.X] {
-			g.screen.SetContent(enemy.X, enemy.Y, enemy.Symbol, nil, enemyStyle)
+			g.screen.SetContent(offsetX+enemy.X, offsetY+enemy.Y, enemy.Symbol, nil, enemyStyle)
 		}
 	}
 
 	// Render player
-	g.screen.SetContent(g.state.Player.X, g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
+	g.screen.SetContent(offsetX+g.state.Player.X, offsetY+g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
 
 	// Render UI bar
-	uiY := min(dungeon.Height, height-2)
+	uiY := offsetY + dungeon.Height
 	uiLine := fmt.Sprintf("HP: %d/%d | Level: %d/%d | Kills: %d | [q]uit",
 		g.state.Player.HP, g.state.Player.MaxHP,
 		g.state.Level, g.state.MaxLevel,
 		g.state.EnemiesKilled)
 
 	for i, ch := range uiLine {
-		if i < width {
-			g.screen.SetContent(i, uiY, ch, nil, floorStyle)
+		if offsetX+i < width {
+			g.screen.SetContent(offsetX+i, uiY, ch, nil, floorStyle)
 		}
 	}
 
@@ -230,8 +240,8 @@ func (g *Game) render() {
 	if g.state.Message != "" {
 		msgY := uiY + 1
 		for i, ch := range g.state.Message {
-			if i < width {
-				g.screen.SetContent(i, msgY, ch, nil, floorStyle)
+			if offsetX+i < width {
+				g.screen.SetContent(offsetX+i, msgY, ch, nil, floorStyle)
 			}
 		}
 	}
@@ -257,7 +267,7 @@ func (g *Game) renderEndScreen(width, height int) {
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
 			"║                                      ║",
 			"║      Press ENTER or SPACE to exit    ║",
-			"║ (none of the vi :q nonsense to die!) ",
+			"║ (none of that vi :q nonsense to die) ",
 			"╚══════════════════════════════════════╝",
 		}
 	} else {
@@ -271,7 +281,7 @@ func (g *Game) renderEndScreen(width, height int) {
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
 			"║                                      ║",
 			"║      Press ENTER or SPACE to exit    ║",
-			"║ (none of the vi :q nonsense to die!) ",
+			"║ (none of that vi :q nonsense to die) ║",
 			"╚══════════════════════════════════════╝",
 		}
 	}
