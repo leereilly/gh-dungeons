@@ -39,7 +39,7 @@ func New() (*Game, error) {
 		return nil, fmt.Errorf("initializing screen: %w", err)
 	}
 
-	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
+	screen.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite))
 	screen.Clear()
 
 	width, height := screen.Size()
@@ -86,19 +86,27 @@ func (g *Game) Run() error {
 
 			// Movement
 			dx, dy := 0, 0
+			konamiKey := ""
 			switch ev.Key() {
 			case tcell.KeyUp:
 				dy = -1
+				konamiKey = "up"
 			case tcell.KeyDown:
 				dy = 1
+				konamiKey = "down"
 			case tcell.KeyLeft:
 				dx = -1
+				konamiKey = "left"
 			case tcell.KeyRight:
 				dx = 1
+				konamiKey = "right"
 			default:
 				switch ev.Rune() {
 				case 'h', 'a':
 					dx = -1
+					if ev.Rune() == 'a' {
+						konamiKey = "a"
+					}
 				case 'l', 'd':
 					dx = 1
 				case 'k', 'w':
@@ -111,9 +119,15 @@ func (g *Game) Run() error {
 					dx, dy = 1, -1
 				case 'b': // diagonal down-left
 					dx, dy = -1, 1
+					konamiKey = "b"
 				case 'n': // diagonal down-right
 					dx, dy = 1, 1
 				}
+			}
+
+			// Check for Konami code
+			if konamiKey != "" {
+				g.state.CheckKonamiCode(konamiKey)
 			}
 
 			if dx != 0 || dy != 0 {
@@ -140,14 +154,14 @@ func (g *Game) render() {
 	}
 
 	// Styles
-	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
-	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
-	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
-	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
-	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
-	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238)
+	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
+	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
+	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
+	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240)
 
 	// Get code lines for background
 	var codeLines []string
@@ -233,10 +247,15 @@ func (g *Game) render() {
 
 	// Render UI bar
 	uiY := offsetY + dungeon.Height
-	uiLine := fmt.Sprintf("HP: %d/%d | Level: %d/%d | Kills: %d | [q]uit",
+	invulnStatus := ""
+	if g.state.Invulnerable {
+		invulnStatus = " | INVULNERABLE"
+	}
+	uiLine := fmt.Sprintf("HP: %d/%d | Level: %d/%d | Kills: %d%s | [q]uit",
 		g.state.Player.HP, g.state.Player.MaxHP,
 		g.state.Level, g.state.MaxLevel,
-		g.state.EnemiesKilled)
+		g.state.EnemiesKilled,
+		invulnStatus)
 
 	for i, ch := range uiLine {
 		if offsetX+i < width {
@@ -261,7 +280,7 @@ func (g *Game) render() {
 }
 
 func (g *Game) renderEndScreen(width, height int) {
-	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
+	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
 
 	var lines []string
 	if g.state.Victory {
