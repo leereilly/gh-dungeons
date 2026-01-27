@@ -154,14 +154,14 @@ func (g *Game) render() {
 	}
 
 	// Styles
-	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
-	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
-	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238)
-	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
-	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
-	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
-	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
-	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240)
+	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+	uiStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen).Background(tcell.ColorBlack)
+	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
+	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
+	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
+	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
+	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
 
 	// Get code lines for background
 	var codeLines []string
@@ -245,8 +245,8 @@ func (g *Game) render() {
 	// Render player
 	g.screen.SetContent(offsetX+g.state.Player.X, offsetY+g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
 
-	// Render UI bar
-	uiY := offsetY + dungeon.Height
+	// Render UI bar at bottom left of screen
+	uiY := height - 2
 	invulnStatus := ""
 	if g.state.Invulnerable {
 		invulnStatus = " | INVULNERABLE"
@@ -258,17 +258,17 @@ func (g *Game) render() {
 		invulnStatus)
 
 	for i, ch := range uiLine {
-		if offsetX+i < width {
-			g.screen.SetContent(offsetX+i, uiY, ch, nil, floorStyle)
+		if i < width {
+			g.screen.SetContent(i, uiY, ch, nil, uiStyle)
 		}
 	}
 
-	// Render message
+	// Render message at bottom left of screen
 	if g.state.Message != "" {
-		msgY := uiY + 1
+		msgY := height - 1
 		for i, ch := range g.state.Message {
-			if offsetX+i < width {
-				g.screen.SetContent(offsetX+i, msgY, ch, nil, floorStyle)
+			if i < width {
+				g.screen.SetContent(i, msgY, ch, nil, uiStyle)
 			}
 		}
 	}

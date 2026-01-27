@@ -417,7 +417,6 @@ func mod2pi(x float64) float64 {
 func (gs *GameState) Resize(termWidth, termHeight int) {
 	gs.TermWidth = termWidth
 	gs.TermHeight = termHeight
-	gs.generateLevel()
 }
 
 // CheckKonamiCode checks if the given key press completes the Konami code
