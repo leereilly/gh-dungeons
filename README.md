@@ -2,6 +2,8 @@
 
 A roguelike dungeon crawler that turns your codebase into a playable game! This GitHub CLI extension procedurally generates dungeons using your repository's code files.
 
+![Demo GIF](assets/demo.gif)
+
 ## Installation
 
 ```bash
@@ -36,6 +38,10 @@ The game scans your repository for code files (60+ lines) and uses them to:
 | `→` `d` `l` | Move right |
 | `y` `u` `b` `n` | Diagonal movement |
 | `q` `Esc` | Quit |
+
+### Konami Code
+
+Enter the classic Konami code (↑ ↑ ↓ ↓ ← → ← → B A) to become **invulnerable**! Monsters will no longer deal damage to you.
 
 ## Gameplay
 
