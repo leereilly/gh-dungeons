@@ -39,7 +39,7 @@ func New() (*Game, error) {
 		return nil, fmt.Errorf("initializing screen: %w", err)
 	}
 
-	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
+	screen.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite))
 	screen.Clear()
 
 	width, height := screen.Size()
@@ -140,14 +140,14 @@ func (g *Game) render() {
 	}
 
 	// Styles
-	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
-	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
-	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
-	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
-	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
-	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238)
+	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
+	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
+	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
+	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240)
 
 	// Get code lines for background
 	var codeLines []string
@@ -261,7 +261,7 @@ func (g *Game) render() {
 }
 
 func (g *Game) renderEndScreen(width, height int) {
-	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
+	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
 
 	var lines []string
 	if g.state.Victory {
