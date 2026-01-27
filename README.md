@@ -39,6 +39,10 @@ The game scans your repository for code files (60+ lines) and uses them to:
 | `y` `u` `b` `n` | Diagonal movement |
 | `q` `Esc` | Quit |
 
+### Konami Code
+
+Enter the classic Konami code (↑ ↑ ↓ ↓ ← → ← → B A) to become **invulnerable**! Monsters will no longer deal damage to you.
+
 ## Gameplay
 
 - **You** are `@` with 10 HP
