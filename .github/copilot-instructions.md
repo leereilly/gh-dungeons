@@ -7,7 +7,7 @@ This is a roguelike dungeon crawler GitHub CLI extension written in Go. It proce
 ## Technology Stack
 
 - **Language**: Go 1.x
-- **UI Library**: Bubble Tea (charmbracelet/bubbletea) for terminal UI
+- **UI Library**: tcell (github.com/gdamore/tcell/v2) for terminal UI
 - **CLI Framework**: GitHub CLI extension
 - **Testing**: Standard Go testing (`go test`)
 - **Build**: Standard Go build toolchain
