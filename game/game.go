@@ -247,9 +247,6 @@ func (g *Game) render() {
 
 	// Render UI bar at bottom left of screen
 	uiY := height - 2
-	uiLine := fmt.Sprintf("HP: %d/%d | Level: %d/%d | Kills: %d | [q]uit",
-	// Render UI bar
-	uiY := offsetY + dungeon.Height
 	invulnStatus := ""
 	if g.state.Invulnerable {
 		invulnStatus = " | INVULNERABLE"
