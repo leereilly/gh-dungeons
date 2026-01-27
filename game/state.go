@@ -100,9 +100,9 @@ func (gs *GameState) generateLevel() {
 		}
 	}
 	
-	// Spawn potions
+	// Spawn potions (scales with level)
 	gs.Potions = nil
-	numPotions := 2 + gs.RNG.Intn(3)
+	numPotions := 2 + gs.Level + gs.RNG.Intn(2)
 	for i := 0; i < numPotions; i++ {
 		x, y := gs.randomFloorTile()
 		gs.Potions = append(gs.Potions, NewPotion(x, y))

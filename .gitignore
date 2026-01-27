@@ -1,3 +1,10 @@
+# Binaries
+gh-dungeons
+gh-dungeons-test
+
+# Test files
+/tmp/
+
 # Binaries for programs and plugins
 gh-dungeons
 *.exe
