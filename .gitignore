@@ -1,7 +1,12 @@
 # Binaries
 gh-dungeons
+gh-dungeons-test
 
-# Build artifacts
+# Test files
+/tmp/
+
+# Binaries for programs and plugins
+gh-dungeons
 *.exe
 *.exe~
 *.dll
