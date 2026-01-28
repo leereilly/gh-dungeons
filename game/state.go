@@ -251,10 +251,6 @@ func (gs *GameState) checkMergeConflict() {
 			gs.Message = "The merge conflict burns around you, but your invulnerability protects you!"
 		}
 	} else {
-		if gs.OnMergeConflict {
-			// Player just moved off the trap, reset movement counter
-			gs.MergeConflictMovements = 0
-		}
 		gs.OnMergeConflict = false
 	}
 }
@@ -266,11 +262,6 @@ func (gs *GameState) processTurn() {
 	// Check merge conflict proximity and damage
 	gs.checkMergeConflict()
 	
-	// Increment merge conflict movement counter if on trap
-	if gs.OnMergeConflict {
-		gs.MergeConflictMovements++
-	}
-	
 	// Enemy turn
 	gs.moveEnemies()
 	
@@ -279,6 +270,11 @@ func (gs *GameState) processTurn() {
 	
 	// Update visibility
 	gs.updateVisibility()
+	
+	// Increment merge conflict movement counter if on trap (at end of turn)
+	if gs.OnMergeConflict {
+		gs.MergeConflictMovements++
+	}
 	
 	// Check player death
 	if !gs.Player.IsAlive() {
