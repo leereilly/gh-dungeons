@@ -319,31 +319,31 @@ func (g *Game) renderMergeConflict(offsetX, offsetY int) {
 	movements := g.state.MergeConflictMovements
 	
 	if movements == 0 {
-		// Initial pattern
+		// Initial pattern (when player first steps on trap)
 		pattern = []string{
 			"<<<<<",
 			"=====",
 			">>>>>",
 		}
 	} else if movements == 1 {
-		// After 1st movement
+		// After 1st turn on trap
 		pattern = []string{
 			">>>>>",
 			"<<<<<",
 			"=====",
 		}
 	} else if movements == 2 {
-		// After 2nd movement
+		// After 2nd turn on trap
 		pattern = []string{
 			"=====",
 			">>>>>",
 			"<<<<<",
 		}
 	} else {
-		// After 2nd movement, randomize between <, >, and =
-		pattern = make([]string, 5)
+		// After 2+ turns, randomize between <, >, and =
+		pattern = make([]string, 3)
 		chars := []rune{'<', '>', '='}
-		for row := 0; row < 5; row++ {
+		for row := 0; row < 3; row++ {
 			rowStr := ""
 			for col := 0; col < 5; col++ {
 				charIdx := g.state.RNG.Intn(len(chars))
