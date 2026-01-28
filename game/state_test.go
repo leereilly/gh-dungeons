@@ -262,6 +262,17 @@ func TestMergeConflictDamage(t *testing.T) {
 	if !gs.OnMergeConflict {
 		t.Error("OnMergeConflict flag should be true")
 	}
+
+	// Verify damage message format
+	expectedMsg := "- 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after merge conflict damage")
+	}
 }
 
 func TestMergeConflictNoDamageWhenNotOnTrap(t *testing.T) {
@@ -405,9 +416,8 @@ func TestEnemyDamageMessage(t *testing.T) {
 		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
 	}
 
-	// Verify MessageStyle is set to red and bold
-	red := tcell.ColorRed
-	if gs.MessageStyle.Foreground(red) == (tcell.Style{}) {
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
 		t.Error("MessageStyle should be set after enemy attack")
 	}
 
@@ -426,6 +436,11 @@ func TestEnemyDamageMessage(t *testing.T) {
 	expectedMsg2 := "- 2 HP damage"
 	if gs2.Message != expectedMsg2 {
 		t.Errorf("Expected message '%s', got '%s'", expectedMsg2, gs2.Message)
+	}
+
+	// Verify MessageStyle is set for scope creep too
+	if gs2.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after scope creep attack")
 	}
 }
 
