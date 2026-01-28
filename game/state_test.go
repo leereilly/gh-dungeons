@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestPlayerInitialHP(t *testing.T) {
+	// Test that player starts with 20 HP
+	player := NewPlayer(5, 5)
+	
+	if player.HP != 20 {
+		t.Errorf("Player should start with 20 HP, got %d", player.HP)
+	}
+	
+	if player.MaxHP != 20 {
+		t.Errorf("Player MaxHP should be 20, got %d", player.MaxHP)
+	}
+}
+
 func TestKonamiCode(t *testing.T) {
 	// Create a game state
 	gs := &GameState{

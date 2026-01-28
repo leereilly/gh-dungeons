@@ -23,8 +23,8 @@ func NewPlayer(x, y int) *Entity {
 		Type:   EntityPlayer,
 		X:      x,
 		Y:      y,
-		HP:     10,
-		MaxHP:  10,
+		HP:     20,
+		MaxHP:  20,
 		Damage: 2,
 		Symbol: '@',
 	}
