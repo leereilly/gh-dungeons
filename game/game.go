@@ -39,7 +39,7 @@ func New() (*Game, error) {
 		return nil, fmt.Errorf("initializing screen: %w", err)
 	}
 
-	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
+	screen.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite))
 	screen.Clear()
 
 	width, height := screen.Size()
@@ -155,7 +155,7 @@ func (g *Game) render() {
 
 	// Styles
 	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
-	floorStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray).Background(tcell.ColorBlack)
+	uiStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen).Background(tcell.ColorBlack)
 	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
 	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
 	enemyStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
@@ -245,8 +245,8 @@ func (g *Game) render() {
 	// Render player
 	g.screen.SetContent(offsetX+g.state.Player.X, offsetY+g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
 
-	// Render UI bar
-	uiY := offsetY + dungeon.Height
+	// Render UI bar at bottom left of screen
+	uiY := height - 2
 	invulnStatus := ""
 	if g.state.Invulnerable {
 		invulnStatus = " | INVULNERABLE"
@@ -258,17 +258,17 @@ func (g *Game) render() {
 		invulnStatus)
 
 	for i, ch := range uiLine {
-		if offsetX+i < width {
-			g.screen.SetContent(offsetX+i, uiY, ch, nil, floorStyle)
+		if i < width {
+			g.screen.SetContent(i, uiY, ch, nil, uiStyle)
 		}
 	}
 
-	// Render message
+	// Render message at bottom left of screen
 	if g.state.Message != "" {
-		msgY := uiY + 1
+		msgY := height - 1
 		for i, ch := range g.state.Message {
-			if offsetX+i < width {
-				g.screen.SetContent(offsetX+i, msgY, ch, nil, floorStyle)
+			if i < width {
+				g.screen.SetContent(i, msgY, ch, nil, uiStyle)
 			}
 		}
 	}
@@ -280,7 +280,7 @@ func (g *Game) render() {
 }
 
 func (g *Game) renderEndScreen(width, height int) {
-	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
+	centerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Bold(true)
 
 	var lines []string
 	if g.state.Victory {

@@ -21,7 +21,7 @@ type GameState struct {
 	Victory       bool
 	EnemiesKilled int
 	Message       string
-	CodeFiles     []CodeFile
+	CodeFiles      []CodeFile
 	RNG            *rand.Rand
 	TermWidth      int
 	TermHeight     int
@@ -100,9 +100,9 @@ func (gs *GameState) generateLevel() {
 		}
 	}
 	
-	// Spawn potions
+	// Spawn potions (scales with level)
 	gs.Potions = nil
-	numPotions := 2 + gs.RNG.Intn(3)
+	numPotions := 2 + gs.Level + gs.RNG.Intn(2)
 	for i := 0; i < numPotions; i++ {
 		x, y := gs.randomFloorTile()
 		gs.Potions = append(gs.Potions, NewPotion(x, y))
@@ -417,7 +417,6 @@ func mod2pi(x float64) float64 {
 func (gs *GameState) Resize(termWidth, termHeight int) {
 	gs.TermWidth = termWidth
 	gs.TermHeight = termHeight
-	gs.generateLevel()
 }
 
 // CheckKonamiCode checks if the given key press completes the Konami code
