@@ -54,9 +54,9 @@ var codeExtensions = map[string]bool{
 }
 
 type CodeFile struct {
-	Path    string
-	Lines   []string
-	SHA     string
+	Path  string
+	Lines []string
+	SHA   string
 }
 
 func findCodeFiles(root string, minLines, maxFiles int) ([]CodeFile, error) {
@@ -177,6 +177,29 @@ func getGitCommitSHA() string {
 	if output, err := cmd.Output(); err == nil {
 		return strings.TrimSpace(string(output))
 	}
+	return ""
+}
+
+// getUsername returns the username to display in the welcome message.
+// It tries GitHub username first (with @), then falls back to Git user.name (without @).
+// Returns empty string if neither is found.
+func getUsername() string {
+	// Try GitHub username first
+	cmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	if output, err := cmd.Output(); err == nil {
+		if username := strings.TrimSpace(string(output)); username != "" {
+			return "@" + username
+		}
+	}
+
+	// Fall back to Git user.name
+	cmd = exec.Command("git", "config", "user.name")
+	if output, err := cmd.Output(); err == nil {
+		if username := strings.TrimSpace(string(output)); username != "" {
+			return username
+		}
+	}
+
 	return ""
 }
 
