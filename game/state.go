@@ -7,20 +7,20 @@ import (
 const VisionRadius = 7
 
 type GameState struct {
-	Player        *Entity
-	Enemies       []*Entity
-	Potions       []*Entity
-	Dungeon       *Dungeon
-	Level         int
-	MaxLevel      int
-	DoorX         int
-	DoorY         int
-	Visible       [][]bool
-	Explored      [][]bool
-	GameOver      bool
-	Victory       bool
-	EnemiesKilled int
-	Message       string
+	Player         *Entity
+	Enemies        []*Entity
+	Potions        []*Entity
+	Dungeon        *Dungeon
+	Level          int
+	MaxLevel       int
+	DoorX          int
+	DoorY          int
+	Visible        [][]bool
+	Explored       [][]bool
+	GameOver       bool
+	Victory        bool
+	EnemiesKilled  int
+	Message        string
 	CodeFiles      []CodeFile
 	RNG            *rand.Rand
 	TermWidth      int
@@ -33,7 +33,7 @@ type GameState struct {
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
 	rng := rand.New(rand.NewSource(seed))
-	
+
 	gs := &GameState{
 		Level:          1,
 		MaxLevel:       5,
@@ -46,7 +46,7 @@ func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *
 		MoveCount:      0,
 		Username:       getUsername(),
 	}
-	
+
 	gs.generateLevel()
 	return gs
 }
@@ -61,15 +61,15 @@ func (gs *GameState) generateLevel() {
 	if height < 20 {
 		height = 20
 	}
-	
+
 	// Pick a code file for this level
 	var codeFile *CodeFile
 	if len(gs.CodeFiles) > 0 {
 		codeFile = &gs.CodeFiles[(gs.Level-1)%len(gs.CodeFiles)]
 	}
-	
+
 	gs.Dungeon = GenerateDungeon(width, height, gs.RNG, codeFile)
-	
+
 	// Initialize visibility arrays
 	gs.Visible = make([][]bool, height)
 	gs.Explored = make([][]bool, height)
@@ -77,7 +77,7 @@ func (gs *GameState) generateLevel() {
 		gs.Visible[y] = make([]bool, width)
 		gs.Explored[y] = make([]bool, width)
 	}
-	
+
 	// Place player in first room
 	if len(gs.Dungeon.Rooms) > 0 {
 		room := gs.Dungeon.Rooms[0]
@@ -88,10 +88,10 @@ func (gs *GameState) generateLevel() {
 			gs.Player.X, gs.Player.Y = px, py
 		}
 	}
-	
+
 	// Place door
 	gs.DoorX, gs.DoorY = gs.Dungeon.PlaceDoor(gs.RNG)
-	
+
 	// Spawn enemies
 	gs.Enemies = nil
 	numEnemies := 3 + gs.Level*2
@@ -103,7 +103,7 @@ func (gs *GameState) generateLevel() {
 			gs.Enemies = append(gs.Enemies, NewScopeCreep(x, y))
 		}
 	}
-	
+
 	// Spawn potions (scales with level)
 	gs.Potions = nil
 	numPotions := 2 + gs.Level + gs.RNG.Intn(2)
@@ -111,7 +111,7 @@ func (gs *GameState) generateLevel() {
 		x, y := gs.randomFloorTile()
 		gs.Potions = append(gs.Potions, NewPotion(x, y))
 	}
-	
+
 	gs.updateVisibility()
 	gs.Message = ""
 }
@@ -124,7 +124,7 @@ func (gs *GameState) randomFloorTile() (int, int) {
 		room := gs.Dungeon.Rooms[gs.RNG.Intn(len(gs.Dungeon.Rooms))]
 		x := room.X + gs.RNG.Intn(room.W)
 		y := room.Y + gs.RNG.Intn(room.H)
-		
+
 		if gs.Dungeon.IsWalkable(x, y) {
 			// Check not on player or door
 			if gs.Player != nil && x == gs.Player.X && y == gs.Player.Y {
@@ -136,22 +136,22 @@ func (gs *GameState) randomFloorTile() (int, int) {
 			return x, y
 		}
 	}
-	return gs.Dungeon.Width/2, gs.Dungeon.Height/2
+	return gs.Dungeon.Width / 2, gs.Dungeon.Height / 2
 }
 
 func (gs *GameState) MovePlayer(dx, dy int) {
 	if gs.GameOver || gs.Victory {
 		return
 	}
-	
+
 	newX := gs.Player.X + dx
 	newY := gs.Player.Y + dy
-	
+
 	// Check bounds and walkability
 	if !gs.Dungeon.IsWalkable(newX, newY) {
 		return
 	}
-	
+
 	// Check for enemy at target position - bump to attack!
 	for _, enemy := range gs.Enemies {
 		if enemy.IsAlive() && enemy.X == newX && enemy.Y == newY {
@@ -178,11 +178,11 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			return
 		}
 	}
-	
+
 	gs.Player.X = newX
 	gs.Player.Y = newY
 	gs.MoveCount++
-	
+
 	// Check for potion pickup
 	for i, potion := range gs.Potions {
 		if potion.X == newX && potion.Y == newY {
@@ -192,7 +192,7 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			break
 		}
 	}
-	
+
 	// Check for door
 	if newX == gs.DoorX && newY == gs.DoorY {
 		if gs.Level >= gs.MaxLevel {
@@ -205,23 +205,23 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 		}
 		return
 	}
-	
+
 	gs.processTurn()
 }
 
 func (gs *GameState) processTurn() {
 	// Auto-attack adjacent enemies
 	gs.playerAutoAttack()
-	
+
 	// Enemy turn
 	gs.moveEnemies()
-	
+
 	// Enemies attack player
 	gs.enemyAttacks()
-	
+
 	// Update visibility
 	gs.updateVisibility()
-	
+
 	// Check player death
 	if !gs.Player.IsAlive() {
 		gs.GameOver = true
@@ -250,12 +250,12 @@ func (gs *GameState) moveEnemies() {
 		if !enemy.IsAlive() {
 			continue
 		}
-		
+
 		// Only move if player is visible (in line of sight)
 		if !gs.hasLineOfSight(enemy.X, enemy.Y, gs.Player.X, gs.Player.Y) {
 			continue
 		}
-		
+
 		// Simple chase AI - move toward player
 		dx, dy := 0, 0
 		if enemy.X < gs.Player.X {
@@ -268,7 +268,7 @@ func (gs *GameState) moveEnemies() {
 		} else if enemy.Y > gs.Player.Y {
 			dy = -1
 		}
-		
+
 		// Try to move (prefer diagonal, then cardinal)
 		newX, newY := enemy.X+dx, enemy.Y+dy
 		if gs.canEnemyMoveTo(newX, newY, enemy) {
@@ -301,7 +301,7 @@ func (gs *GameState) enemyAttacks() {
 		// Player is invulnerable, enemies do no damage
 		return
 	}
-	
+
 	for _, enemy := range gs.Enemies {
 		if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
 			gs.Player.TakeDamage(enemy.Damage)
@@ -317,22 +317,22 @@ func (gs *GameState) enemyAttacks() {
 func (gs *GameState) hasLineOfSight(x1, y1, x2, y2 int) bool {
 	dx := x2 - x1
 	dy := y2 - y1
-	
+
 	steps := abs(dx)
 	if abs(dy) > steps {
 		steps = abs(dy)
 	}
-	
+
 	if steps == 0 {
 		return true
 	}
-	
+
 	xInc := float64(dx) / float64(steps)
 	yInc := float64(dy) / float64(steps)
-	
+
 	x := float64(x1)
 	y := float64(y1)
-	
+
 	for i := 0; i < steps; i++ {
 		x += xInc
 		y += yInc
@@ -341,7 +341,7 @@ func (gs *GameState) hasLineOfSight(x1, y1, x2, y2 int) bool {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -352,7 +352,7 @@ func (gs *GameState) updateVisibility() {
 			gs.Visible[y][x] = false
 		}
 	}
-	
+
 	// Cast rays for fog of war
 	px, py := gs.Player.X, gs.Player.Y
 	for angle := 0; angle < 360; angle += 2 {
@@ -365,24 +365,24 @@ func (gs *GameState) castRay(startX, startY, angle int) {
 	rad := float64(angle) * 3.14159265 / 180.0
 	dx := cos(rad)
 	dy := sin(rad)
-	
+
 	x := float64(startX)
 	y := float64(startY)
-	
+
 	for dist := 0; dist <= VisionRadius; dist++ {
 		ix, iy := int(x+0.5), int(y+0.5)
-		
+
 		if ix < 0 || ix >= gs.Dungeon.Width || iy < 0 || iy >= gs.Dungeon.Height {
 			break
 		}
-		
+
 		gs.Visible[iy][ix] = true
 		gs.Explored[iy][ix] = true
-		
+
 		if gs.Dungeon.Tiles[iy][ix] == TileWall {
 			break
 		}
-		
+
 		x += dx
 		y += dy
 	}
@@ -428,14 +428,14 @@ func (gs *GameState) Resize(termWidth, termHeight int) {
 // Konami code: up, up, down, down, left, right, left, right, B, A
 func (gs *GameState) CheckKonamiCode(key string) {
 	konamiCode := []string{"up", "up", "down", "down", "left", "right", "left", "right", "b", "a"}
-	
+
 	gs.KonamiSequence = append(gs.KonamiSequence, key)
-	
+
 	// Keep only the last 10 keys
 	if len(gs.KonamiSequence) > 10 {
 		gs.KonamiSequence = gs.KonamiSequence[len(gs.KonamiSequence)-10:]
 	}
-	
+
 	// Check if the sequence matches the Konami code
 	if len(gs.KonamiSequence) == 10 {
 		match := true

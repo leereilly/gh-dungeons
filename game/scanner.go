@@ -54,9 +54,9 @@ var codeExtensions = map[string]bool{
 }
 
 type CodeFile struct {
-	Path    string
-	Lines   []string
-	SHA     string
+	Path  string
+	Lines []string
+	SHA   string
 }
 
 func findCodeFiles(root string, minLines, maxFiles int) ([]CodeFile, error) {

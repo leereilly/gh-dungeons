@@ -17,7 +17,7 @@ func TestKonamiCode(t *testing.T) {
 
 	// Test correct Konami code sequence
 	konamiCode := []string{"up", "up", "down", "down", "left", "right", "left", "right", "b", "a"}
-	
+
 	for i, key := range konamiCode {
 		gs.CheckKonamiCode(key)
 		if i < 9 {
@@ -46,7 +46,7 @@ func TestKonamiCodeIncorrectSequence(t *testing.T) {
 
 	// Test incorrect sequence
 	incorrectSequence := []string{"up", "down", "left", "right", "up", "down", "left", "right", "b", "a"}
-	
+
 	for _, key := range incorrectSequence {
 		gs.CheckKonamiCode(key)
 	}

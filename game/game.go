@@ -266,12 +266,12 @@ func (g *Game) render() {
 	// Render message at bottom left of screen
 	msgY := height - 1
 	displayMsg := g.state.Message
-	
+
 	// Show welcome message for first 10 movements if username is available
 	if g.state.MoveCount < 10 && g.state.Username != "" && g.state.Message == "" {
 		displayMsg = fmt.Sprintf("Welcome adventurer, %s", g.state.Username)
 	}
-	
+
 	if displayMsg != "" {
 		for i, ch := range displayMsg {
 			if i < width {
