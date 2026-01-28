@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -153,8 +154,15 @@ func (g *Game) render() {
 		offsetY = 0
 	}
 
-	// Styles
-	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+	// Styles - walls turn red (visible) or orange (fog) when merge conflict triggered
+	var wallStyle, fogWallStyle tcell.Style
+	if g.state.MergeConflictTriggered {
+		wallStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
+		fogWallStyle = tcell.StyleDefault.Foreground(tcell.ColorOrange).Background(tcell.ColorBlack)
+	} else {
+		wallStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+		fogWallStyle = tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	}
 	uiStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen).Background(tcell.ColorBlack)
 	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
 	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
@@ -190,7 +198,7 @@ func (g *Game) render() {
 				if visible {
 					style = wallStyle
 				} else {
-					style = fogStyle
+					style = fogWallStyle
 				}
 			case TileFloor:
 				// Show code character if available (2x density)
@@ -235,8 +243,8 @@ func (g *Game) render() {
 		}
 	}
 	
-	// Render merge conflict if player is on it (5x5 grid)
-	if g.state.OnMergeConflict {
+	// Render merge conflict if it has been triggered (fire persists after leaving)
+	if g.state.MergeConflictTriggered {
 		g.renderMergeConflict(offsetX, offsetY)
 	}
 
@@ -290,11 +298,17 @@ func (g *Game) render() {
 }
 
 func (g *Game) renderMergeConflict(offsetX, offsetY int) {
-	// Colors for merge conflict: red, orange, yellow
-	colors := []tcell.Color{
+	// Colors for merge conflict: red, orange, yellow - rotate based on movement
+	baseColors := []tcell.Color{
 		tcell.ColorRed,
 		tcell.ColorOrange,
 		tcell.ColorYellow,
+	}
+	// Rotate colors based on ColorRotation
+	rotation := g.state.ColorRotation % 3
+	colors := make([]tcell.Color, 3)
+	for i := 0; i < 3; i++ {
+		colors[i] = baseColors[(i+rotation)%3]
 	}
 	
 	centerX := g.state.MergeConflictX
@@ -357,19 +371,43 @@ func (g *Game) renderMergeConflict(offsetX, offsetY int) {
 				continue
 			}
 			
-			// Only show on walkable tiles and if visible
-			if !g.state.Dungeon.IsWalkable(mcX, mcY) || !g.state.Visible[mcY][mcX] {
+			// Only show on walkable tiles (always show when player is on merge conflict)
+			if !g.state.Dungeon.IsWalkable(mcX, mcY) {
 				continue
 			}
 			
 			ch := rune(pattern[row][col])
 			if ch != ' ' {
-				// Random color for each character
-				colorIdx := g.state.RNG.Intn(len(colors))
+				// Deterministic color based on position and rotation
+				colorIdx := (mcX + mcY) % 3
 				mcStyle := tcell.StyleDefault.Foreground(colors[colorIdx]).Background(tcell.ColorBlack)
 				g.screen.SetContent(offsetX+mcX, offsetY+mcY, ch, nil, mcStyle)
 			}
 		}
+	}
+	
+	// Render fire spread tiles
+	spreadChars := []rune{'<', '>', '='}
+	for i, tile := range g.state.MergeConflictSpread {
+		mcX := tile[0]
+		mcY := tile[1]
+		
+		// Skip if out of bounds
+		if mcX < 0 || mcX >= g.state.Dungeon.Width || mcY < 0 || mcY >= g.state.Dungeon.Height {
+			continue
+		}
+		
+		// Only show on walkable tiles
+		if !g.state.Dungeon.IsWalkable(mcX, mcY) {
+			continue
+		}
+		
+		// Pick character based on position
+		ch := spreadChars[(mcX+mcY)%3]
+		// Deterministic color based on position and rotation
+		colorIdx := (mcX + mcY + i) % 3
+		mcStyle := tcell.StyleDefault.Foreground(colors[colorIdx]).Background(tcell.ColorBlack)
+		g.screen.SetContent(offsetX+mcX, offsetY+mcY, ch, nil, mcStyle)
 	}
 }
 
@@ -392,11 +430,13 @@ func (g *Game) renderEndScreen(width, height int) {
 			"╚══════════════════════════════════════╝",
 		}
 	} else {
+		// Get custom death message based on what killed the player
+		deathMsg := g.getDeathMessage()
 		lines = []string{
 			"╔══════════════════════════════════════╗",
 			"║            x GAME OVER x             ║",
 			"║                                      ║",
-			"║   The bugs and scope creeps won...   ║",
+			fmt.Sprintf("║   %-36s ║", deathMsg),
 			"║                                      ║",
 			fmt.Sprintf("║   Levels Cleared: %d                  ║", g.state.Level-1),
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
@@ -420,4 +460,18 @@ func (g *Game) renderEndScreen(width, height int) {
 
 func stringWidth(s string) int {
 	return len([]rune(s))
+}
+
+func (g *Game) getDeathMessage() string {
+	switch g.state.KilledBy {
+	case "bug":
+		return "In GitHub Dungeons... bug squashes YOU"
+	case "merge_conflict":
+		dayName := time.Now().Weekday().String()
+		return fmt.Sprintf("Death by merge conflict. Just a typical %s.", dayName)
+	case "scope_creep":
+		return "Foiled by scope creep again!"
+	default:
+		return "The bugs and scope creeps won..."
+	}
 }
