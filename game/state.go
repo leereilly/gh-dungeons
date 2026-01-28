@@ -213,12 +213,6 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 		return
 	}
 	
-	// Check merge conflict proximity and update message
-	distance := gs.distanceToMergeConflict()
-	if distance <= 2 {
-		gs.Message = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
-	}
-	
 	gs.processTurn()
 }
 
@@ -272,6 +266,12 @@ func (gs *GameState) processTurn() {
 	
 	// Increment fire tick for animation
 	gs.FireTick++
+	
+	// Show warning message if player is near merge conflict and no other message
+	distance := gs.distanceToMergeConflict()
+	if distance <= 2 && distance > 0 && gs.Message == "" {
+		gs.Message = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
+	}
 	
 	// Check player death
 	if !gs.Player.IsAlive() {
