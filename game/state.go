@@ -446,18 +446,19 @@ func (gs *GameState) enemyAttacks() {
 	for _, enemy := range gs.Enemies {
 		if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
 			gs.Player.TakeDamage(enemy.Damage)
-			// Format damage message as "- X HP damage" in red
-			gs.Message = fmt.Sprintf("- %d HP damage", enemy.Damage)
-			gs.MessageStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+			// Format damage message with monster type and damage in red
 			if enemy.Type == EntityBug {
+				gs.Message = fmt.Sprintf("A bug attacked - %d HP damage", enemy.Damage)
 				if !gs.Player.IsAlive() {
 					gs.KilledBy = "bug"
 				}
 			} else {
+				gs.Message = fmt.Sprintf("A scope creep attacked - %d HP damage", enemy.Damage)
 				if !gs.Player.IsAlive() {
 					gs.KilledBy = "scope_creep"
 				}
 			}
+			gs.MessageStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 		}
 	}
 }
