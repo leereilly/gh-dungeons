@@ -3,16 +3,38 @@ package game
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 )
 
 type Game struct {
-	screen tcell.Screen
-	state  *GameState
+	screen    tcell.Screen
+	state     *GameState
+	mergeMode bool
 }
 
-func New() (*Game, error) {
+// GameOption configures Game creation
+type GameOption func(*gameOptions)
+
+type gameOptions struct {
+	mergeMode bool
+}
+
+// WithMergeMode enables merge conflict display mode
+func WithMergeMode(enabled bool) GameOption {
+	return func(o *gameOptions) {
+		o.mergeMode = enabled
+	}
+}
+
+func New(opts ...GameOption) (*Game, error) {
+	// Apply options
+	options := &gameOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	// Find code files in current directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -22,6 +44,12 @@ func New() (*Game, error) {
 	codeFiles, err := findCodeFiles(cwd, 60, 5)
 	if err != nil {
 		return nil, fmt.Errorf("scanning code files: %w", err)
+	}
+
+	// Find merge conflict location if in merge mode
+	var mergeConflict *MergeConflictLocation
+	if options.mergeMode {
+		mergeConflict = findMergeConflict(cwd)
 	}
 
 	// Compute seed from code files
@@ -44,10 +72,12 @@ func New() (*Game, error) {
 
 	width, height := screen.Size()
 	state := NewGameState(codeFiles, seed, width, height)
+	state.MergeConflict = mergeConflict
 
 	return &Game{
-		screen: screen,
-		state:  state,
+		screen:    screen,
+		state:     state,
+		mergeMode: options.mergeMode,
 	}, nil
 }
 
@@ -153,8 +183,15 @@ func (g *Game) render() {
 		offsetY = 0
 	}
 
-	// Styles
-	wallStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+	// Styles - walls turn red (visible) or orange (fog) when merge conflict triggered
+	var wallStyle, fogWallStyle tcell.Style
+	if g.state.MergeConflictTriggered {
+		wallStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
+		fogWallStyle = tcell.StyleDefault.Foreground(tcell.ColorOrange).Background(tcell.ColorBlack)
+	} else {
+		wallStyle = tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
+		fogWallStyle = tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	}
 	uiStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen).Background(tcell.ColorBlack)
 	codeStyle := tcell.StyleDefault.Foreground(tcell.Color238).Background(tcell.ColorBlack)
 	playerStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
@@ -162,6 +199,7 @@ func (g *Game) render() {
 	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
 	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	mergeAffectedStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 
 	// Get code lines for background
 	var codeLines []string
@@ -190,7 +228,7 @@ func (g *Game) render() {
 				if visible {
 					style = wallStyle
 				} else {
-					style = fogStyle
+					style = fogWallStyle
 				}
 			case TileFloor:
 				// Show code character if available (2x density)
@@ -224,6 +262,14 @@ func (g *Game) render() {
 				}
 			}
 
+			// Override style for merge-affected tiles (show in red with conflict chars)
+			if g.state.IsMergeAffected(x, y) && visible {
+				style = mergeAffectedStyle
+				// Change character to conflict markers, cycling with player movement
+				conflictChars := []rune{'<', '>', '='}
+				ch = conflictChars[(x+y+g.state.MergeAnimationStep)%len(conflictChars)]
+			}
+
 			g.screen.SetContent(offsetX+x, offsetY+y, ch, nil, style)
 		}
 	}
@@ -233,6 +279,11 @@ func (g *Game) render() {
 		if g.state.Visible[potion.Y][potion.X] {
 			g.screen.SetContent(offsetX+potion.X, offsetY+potion.Y, potion.Symbol, nil, potionStyle)
 		}
+	}
+	
+	// Render merge conflict if it has been triggered (fire persists after leaving)
+	if g.state.MergeConflictTriggered {
+		g.renderMergeConflict(offsetX, offsetY)
 	}
 
 	// Render enemies
@@ -244,6 +295,15 @@ func (g *Game) render() {
 
 	// Render player
 	g.screen.SetContent(offsetX+g.state.Player.X, offsetY+g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
+
+	// Render merge conflict marker (red X at center of the most central room)
+	if g.mergeMode {
+		mergeStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+		markerX, markerY := findCentralRoomCenter(dungeon)
+		if markerX >= 0 && markerY >= 0 {
+			g.screen.SetContent(offsetX+markerX, offsetY+markerY, 'X', nil, mergeStyle)
+		}
+	}
 
 	// Render UI bar at bottom left of screen
 	uiY := height - 2
@@ -264,11 +324,43 @@ func (g *Game) render() {
 	}
 
 	// Render message at bottom left of screen
+	msgY := height - 1
+	// Clear the message line first to avoid leftover characters
+	for i := 0; i < width; i++ {
+		g.screen.SetContent(i, msgY, ' ', nil, tcell.StyleDefault)
+	}
 	if g.state.Message != "" {
-		msgY := height - 1
+		msgStyle := uiStyle
+		// Show warning message in red
+		if g.state.Message == MergeConflictWarning {
+			msgStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+		}
 		for i, ch := range g.state.Message {
 			if i < width {
-				g.screen.SetContent(i, msgY, ch, nil, uiStyle)
+				g.screen.SetContent(i, msgY, ch, nil, msgStyle)
+			}
+		}
+	}
+
+	// Render merge conflict warning if player is within 2 chars of merge marker center
+	// Only show warning if conflict hasn't been triggered yet (no affected tiles)
+	if g.mergeMode && g.state.MergeMarkerX >= 0 && g.state.MergeMarkerY >= 0 && len(g.state.MergeAffectedTiles) == 0 {
+		dx := g.state.Player.X - g.state.MergeMarkerX
+		dy := g.state.Player.Y - g.state.MergeMarkerY
+		if dx < 0 {
+			dx = -dx
+		}
+		if dy < 0 {
+			dy = -dy
+		}
+		if dx <= 2 && dy <= 2 {
+			warningStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+			warningMsg := "WARNING: Merge conflict detected"
+			msgY := height - 1
+			for i, ch := range warningMsg {
+				if i < width {
+					g.screen.SetContent(i, msgY, ch, nil, warningStyle)
+				}
 			}
 		}
 	}
@@ -276,6 +368,120 @@ func (g *Game) render() {
 	// Game over / Victory screen
 	if g.state.GameOver || g.state.Victory {
 		g.renderEndScreen(width, height)
+	}
+}
+
+func (g *Game) renderMergeConflict(offsetX, offsetY int) {
+	// Colors for merge conflict: red, orange, yellow - rotate based on movement
+	baseColors := []tcell.Color{
+		tcell.ColorRed,
+		tcell.ColorOrange,
+		tcell.ColorYellow,
+	}
+	// Rotate colors based on ColorRotation
+	rotation := g.state.ColorRotation % 3
+	colors := make([]tcell.Color, 3)
+	for i := 0; i < 3; i++ {
+		colors[i] = baseColors[(i+rotation)%3]
+	}
+	
+	centerX := g.state.MergeConflictX
+	centerY := g.state.MergeConflictY
+	
+	// Define the patterns based on movement count (3 rows x 5 cols)
+	var pattern []string
+	movements := g.state.MergeConflictMovements
+	
+	if movements == 0 {
+		// Initial pattern (when player first steps on trap)
+		pattern = []string{
+			"<<<<<",
+			"=====",
+			">>>>>",
+		}
+	} else if movements == 1 {
+		// After 1st turn on trap
+		pattern = []string{
+			">>>>>",
+			"<<<<<",
+			"=====",
+		}
+	} else if movements == 2 {
+		// After 2nd turn on trap
+		pattern = []string{
+			"=====",
+			">>>>>",
+			"<<<<<",
+		}
+	} else {
+		// After 2+ turns, randomize between <, >, and =
+		pattern = make([]string, 3)
+		chars := []rune{'<', '>', '='}
+		for row := 0; row < 3; row++ {
+			rowStr := ""
+			for col := 0; col < 5; col++ {
+				charIdx := g.state.RNG.Intn(len(chars))
+				rowStr += string(chars[charIdx])
+			}
+			pattern[row] = rowStr
+		}
+	}
+	
+	// Calculate the size of the pattern
+	patternHeight := len(pattern)
+	patternWidth := 5 // All patterns are 5 characters wide
+	
+	// Render centered on the merge conflict position
+	startY := -(patternHeight / 2)
+	startX := -(patternWidth / 2)
+	
+	for row := 0; row < patternHeight; row++ {
+		for col := 0; col < patternWidth && col < len(pattern[row]); col++ {
+			mcX := centerX + startX + col
+			mcY := centerY + startY + row
+			
+			// Skip if out of bounds
+			if mcX < 0 || mcX >= g.state.Dungeon.Width || mcY < 0 || mcY >= g.state.Dungeon.Height {
+				continue
+			}
+			
+			// Only show on walkable tiles (always show when player is on merge conflict)
+			if !g.state.Dungeon.IsWalkable(mcX, mcY) {
+				continue
+			}
+			
+			ch := rune(pattern[row][col])
+			if ch != ' ' {
+				// Deterministic color based on position and rotation
+				colorIdx := (mcX + mcY) % 3
+				mcStyle := tcell.StyleDefault.Foreground(colors[colorIdx]).Background(tcell.ColorBlack)
+				g.screen.SetContent(offsetX+mcX, offsetY+mcY, ch, nil, mcStyle)
+			}
+		}
+	}
+	
+	// Render fire spread tiles
+	spreadChars := []rune{'<', '>', '='}
+	for i, tile := range g.state.MergeConflictSpread {
+		mcX := tile[0]
+		mcY := tile[1]
+		
+		// Skip if out of bounds
+		if mcX < 0 || mcX >= g.state.Dungeon.Width || mcY < 0 || mcY >= g.state.Dungeon.Height {
+			continue
+		}
+		
+		// Only show on walkable tiles
+		if !g.state.Dungeon.IsWalkable(mcX, mcY) {
+			continue
+		}
+		
+		// Pick character based on position
+		ch := spreadChars[(mcX+mcY)%3]
+		// Deterministic color based on position and rotation
+		colorIdx := (mcX + mcY + i) % 3
+		mcStyle := tcell.StyleDefault.Foreground(colors[colorIdx]).Background(tcell.ColorBlack)
+		g.screen.SetContent(offsetX+mcX, offsetY+mcY, ch, nil, mcStyle)
 	}
 }
 
@@ -298,11 +504,13 @@ func (g *Game) renderEndScreen(width, height int) {
 			"╚══════════════════════════════════════╝",
 		}
 	} else {
+		// Get custom death message based on what killed the player
+		deathMsg := g.getDeathMessage()
 		lines = []string{
 			"╔══════════════════════════════════════╗",
 			"║            x GAME OVER x             ║",
 			"║                                      ║",
-			"║   The bugs and scope creeps won...   ║",
+			fmt.Sprintf("║   %-36s ║", deathMsg),
 			"║                                      ║",
 			fmt.Sprintf("║   Levels Cleared: %d                  ║", g.state.Level-1),
 			fmt.Sprintf("║   Enemies Killed: %-3d                ║", g.state.EnemiesKilled),
@@ -326,4 +534,18 @@ func (g *Game) renderEndScreen(width, height int) {
 
 func stringWidth(s string) int {
 	return len([]rune(s))
+}
+
+func (g *Game) getDeathMessage() string {
+	switch g.state.KilledBy {
+	case "bug":
+		return "In GitHub Dungeons... bug squashes YOU"
+	case "merge_conflict":
+		dayName := time.Now().Weekday().String()
+		return fmt.Sprintf("Death by merge conflict. Just a typical %s.", dayName)
+	case "scope_creep":
+		return "Foiled by scope creep again!"
+	default:
+		return "The bugs and scope creeps won..."
+	}
 }

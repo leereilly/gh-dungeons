@@ -8,7 +8,16 @@ import (
 )
 
 func main() {
-	g, err := game.New()
+	// Check for --merge flag
+	mergeMode := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--merge" {
+			mergeMode = true
+			break
+		}
+	}
+
+	g, err := game.New(game.WithMergeMode(mergeMode))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing game: %v\n", err)
 		os.Exit(1)

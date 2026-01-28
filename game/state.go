@@ -5,42 +5,59 @@ import (
 )
 
 const VisionRadius = 7
+const MergeConflictWarning = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
 
 type GameState struct {
-	Player        *Entity
-	Enemies       []*Entity
-	Potions       []*Entity
-	Dungeon       *Dungeon
-	Level         int
-	MaxLevel      int
-	DoorX         int
-	DoorY         int
-	Visible       [][]bool
-	Explored      [][]bool
-	GameOver      bool
-	Victory       bool
-	EnemiesKilled int
-	Message       string
-	CodeFiles      []CodeFile
-	RNG            *rand.Rand
-	TermWidth      int
-	TermHeight     int
-	KonamiSequence []string
-	Invulnerable   bool
+	Player                 *Entity
+	Enemies                []*Entity
+	Potions                []*Entity
+	Dungeon                *Dungeon
+	Level                  int
+	MaxLevel               int
+	DoorX                  int
+	DoorY                  int
+	Visible                [][]bool
+	Explored               [][]bool
+	GameOver               bool
+	Victory                bool
+	EnemiesKilled          int
+	Message                string
+	CodeFiles              []CodeFile
+	RNG                    *rand.Rand
+	TermWidth              int
+	TermHeight             int
+	KonamiSequence         []string
+	Invulnerable           bool
+	MergeConflictX         int
+	MergeConflictY         int
+	OnMergeConflict        bool
+	MergeConflictTriggered bool              // Track if merge conflict has ever been triggered (for persistent fire/wall effects)
+	MergeConflictMovements int               // Track player movements on merge conflict
+	KilledBy               string            // Track what killed the player for custom death messages
+	MergeConflictSpread    [][2]int          // Additional fire spread tiles
+	ColorRotation          int               // Track color rotation for merge conflict
+	MergeConflict          *MergeConflictLocation
+	MergeMarkerX           int
+	MergeMarkerY           int
+	MergeAffectedTiles     map[int]bool      // key: y*width + x
+	MergeAnimationStep     int               // cycles merge conflict markers on each move
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
 	rng := rand.New(rand.NewSource(seed))
 	
 	gs := &GameState{
-		Level:          1,
-		MaxLevel:       5,
-		CodeFiles:      codeFiles,
-		RNG:            rng,
-		TermWidth:      termWidth,
-		TermHeight:     termHeight,
-		KonamiSequence: make([]string, 0),
-		Invulnerable:   false,
+		Level:              1,
+		MaxLevel:           5,
+		CodeFiles:          codeFiles,
+		RNG:                rng,
+		TermWidth:          termWidth,
+		TermHeight:         termHeight,
+		KonamiSequence:     make([]string, 0),
+		Invulnerable:       false,
+		MergeMarkerX:       -1,
+		MergeMarkerY:       -1,
+		MergeAffectedTiles: make(map[int]bool),
 	}
 	
 	gs.generateLevel()
@@ -88,6 +105,10 @@ func (gs *GameState) generateLevel() {
 	// Place door
 	gs.DoorX, gs.DoorY = gs.Dungeon.PlaceDoor(gs.RNG)
 	
+	// Place merge conflict trap (one per level) - place before enemies/potions
+	gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
+	gs.OnMergeConflict = false
+	
 	// Spawn enemies
 	gs.Enemies = nil
 	numEnemies := 3 + gs.Level*2
@@ -108,6 +129,10 @@ func (gs *GameState) generateLevel() {
 		gs.Potions = append(gs.Potions, NewPotion(x, y))
 	}
 	
+	// Set merge conflict marker position (center of most central room)
+	gs.MergeMarkerX, gs.MergeMarkerY = findCentralRoomCenter(gs.Dungeon)
+	gs.MergeAffectedTiles = make(map[int]bool)
+	
 	gs.updateVisibility()
 	gs.Message = ""
 }
@@ -127,6 +152,10 @@ func (gs *GameState) randomFloorTile() (int, int) {
 				continue
 			}
 			if x == gs.DoorX && y == gs.DoorY {
+				continue
+			}
+			// Check not on merge conflict trap (if already placed)
+			if x == gs.MergeConflictX && y == gs.MergeConflictY {
 				continue
 			}
 			return x, y
@@ -178,6 +207,11 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 	gs.Player.X = newX
 	gs.Player.Y = newY
 	
+	// Cycle merge conflict animation if active
+	if len(gs.MergeAffectedTiles) > 0 {
+		gs.MergeAnimationStep++
+	}
+	
 	// Check for potion pickup
 	for i, potion := range gs.Potions {
 		if potion.X == newX && potion.Y == newY {
@@ -186,6 +220,11 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			gs.Message = "You drink a health potion! (+3 HP)"
 			break
 		}
+	}
+	
+	// Check for merge conflict marker
+	if newX == gs.MergeMarkerX && newY == gs.MergeMarkerY {
+		gs.triggerMergeConflict()
 	}
 	
 	// Check for door
@@ -204,9 +243,81 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 	gs.processTurn()
 }
 
+func (gs *GameState) distanceToMergeConflict() int {
+	dx := gs.Player.X - gs.MergeConflictX
+	dy := gs.Player.Y - gs.MergeConflictY
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	// Use Chebyshev distance (max of abs differences)
+	if dx > dy {
+		return dx
+	}
+	return dy
+}
+
+// isPlayerInMergeConflictArea checks if the player is within the merge conflict's visual area
+func (gs *GameState) isPlayerInMergeConflictArea() bool {
+	// Check core 5x3 area
+	dx := gs.Player.X - gs.MergeConflictX
+	dy := gs.Player.Y - gs.MergeConflictY
+	if dx >= -2 && dx <= 2 && dy >= -1 && dy <= 1 {
+		return true
+	}
+	// Check spread tiles
+	for _, tile := range gs.MergeConflictSpread {
+		if gs.Player.X == tile[0] && gs.Player.Y == tile[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func (gs *GameState) checkMergeConflict() {
+	// Check if player is on merge conflict trap center
+	onTrapCenter := gs.Player.X == gs.MergeConflictX && gs.Player.Y == gs.MergeConflictY
+	
+	if onTrapCenter {
+		if !gs.OnMergeConflict {
+			// Player just stepped on the trap center
+			gs.OnMergeConflict = true
+			gs.MergeConflictTriggered = true
+			gs.MergeConflictMovements = 0
+			gs.generateMergeConflictSpread()
+		}
+		// Rotate colors on each movement
+		gs.ColorRotation++
+		// Deal 1 damage per turn while on the trap center
+		if !gs.Invulnerable {
+			gs.Player.TakeDamage(1)
+			gs.Message = "The merge conflict burns you for 1 damage!"
+			if !gs.Player.IsAlive() {
+				gs.KilledBy = "merge_conflict"
+			}
+		} else {
+			gs.Message = "The merge conflict burns around you, but your invulnerability protects you!"
+		}
+	} else if gs.MergeConflictTriggered {
+		// Player moved off the center - keep animating fire even outside the area
+		gs.ColorRotation++
+		if gs.OnMergeConflict && !gs.isPlayerInMergeConflictArea() {
+			// Player fully escaped the merge conflict area
+			gs.OnMergeConflict = false
+		}
+	} else {
+		gs.OnMergeConflict = false
+	}
+}
+
 func (gs *GameState) processTurn() {
 	// Auto-attack adjacent enemies
 	gs.playerAutoAttack()
+	
+	// Check merge conflict proximity and damage
+	gs.checkMergeConflict()
 	
 	// Enemy turn
 	gs.moveEnemies()
@@ -217,10 +328,22 @@ func (gs *GameState) processTurn() {
 	// Update visibility
 	gs.updateVisibility()
 	
+	// Increment merge conflict movement counter if on trap (at end of turn)
+	if gs.OnMergeConflict {
+		gs.MergeConflictMovements++
+	}
+	
 	// Check player death
 	if !gs.Player.IsAlive() {
 		gs.GameOver = true
 		gs.Message = "You died!"
+		return
+	}
+	
+	// Show warning message if player is near merge conflict and no other message
+	distance := gs.distanceToMergeConflict()
+	if distance <= 2 && distance > 0 && gs.Message == "" {
+		gs.Message = MergeConflictWarning
 	}
 }
 
@@ -302,8 +425,14 @@ func (gs *GameState) enemyAttacks() {
 			gs.Player.TakeDamage(enemy.Damage)
 			if enemy.Type == EntityBug {
 				gs.Message = "A bug bites you!"
+				if !gs.Player.IsAlive() {
+					gs.KilledBy = "bug"
+				}
 			} else {
 				gs.Message = "A scope creep attacks!"
+				if !gs.Player.IsAlive() {
+					gs.KilledBy = "scope_creep"
+				}
 			}
 		}
 	}
@@ -419,6 +548,70 @@ func (gs *GameState) Resize(termWidth, termHeight int) {
 	gs.TermHeight = termHeight
 }
 
+func (gs *GameState) generateMergeConflictSpread() {
+	// Skip if no dungeon (for tests)
+	if gs.Dungeon == nil {
+		return
+	}
+	
+	// Get all tiles in the core 5x3 pattern
+	coreTiles := make(map[[2]int]bool)
+	centerX := gs.MergeConflictX
+	centerY := gs.MergeConflictY
+	
+	for row := -1; row <= 1; row++ {
+		for col := -2; col <= 2; col++ {
+			coreTiles[[2]int{centerX + col, centerY + row}] = true
+		}
+	}
+	
+	// Find all adjacent tiles to the core pattern
+	var adjacentTiles [][2]int
+	directions := [][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
+	
+	for tile := range coreTiles {
+		for _, dir := range directions {
+			newX := tile[0] + dir[0]
+			newY := tile[1] + dir[1]
+			newTile := [2]int{newX, newY}
+			
+			// Skip if already in core or out of bounds
+			if coreTiles[newTile] {
+				continue
+			}
+			if newX < 0 || newX >= gs.Dungeon.Width || newY < 0 || newY >= gs.Dungeon.Height {
+				continue
+			}
+			if !gs.Dungeon.IsWalkable(newX, newY) {
+				continue
+			}
+			
+			// Check if already added
+			alreadyAdded := false
+			for _, t := range adjacentTiles {
+				if t == newTile {
+					alreadyAdded = true
+					break
+				}
+			}
+			if !alreadyAdded {
+				adjacentTiles = append(adjacentTiles, newTile)
+			}
+		}
+	}
+	
+	// Shuffle and pick 7 random tiles
+	gs.RNG.Shuffle(len(adjacentTiles), func(i, j int) {
+		adjacentTiles[i], adjacentTiles[j] = adjacentTiles[j], adjacentTiles[i]
+	})
+	
+	numSpread := 7
+	if len(adjacentTiles) < numSpread {
+		numSpread = len(adjacentTiles)
+	}
+	gs.MergeConflictSpread = adjacentTiles[:numSpread]
+}
+
 // CheckKonamiCode checks if the given key press completes the Konami code
 // Konami code: up, up, down, down, left, right, left, right, B, A
 func (gs *GameState) CheckKonamiCode(key string) {
@@ -445,4 +638,37 @@ func (gs *GameState) CheckKonamiCode(key string) {
 			gs.Message = "KONAMI CODE ACTIVATED! You are now invulnerable!"
 		}
 	}
+}
+
+// triggerMergeConflict handles the player stepping on a merge conflict marker
+func (gs *GameState) triggerMergeConflict() {
+	// Deal damage to player (unless invulnerable)
+	if !gs.Invulnerable {
+		gs.Player.TakeDamage(2)
+	}
+	gs.Message = "MERGE CONFLICT! The code tears apart around you!"
+	
+	// Mark surrounding tiles as affected (3x3 area around the marker)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			ax := gs.MergeMarkerX + dx
+			ay := gs.MergeMarkerY + dy
+			if ax >= 0 && ax < gs.Dungeon.Width && ay >= 0 && ay < gs.Dungeon.Height {
+				key := ay*gs.Dungeon.Width + ax
+				gs.MergeAffectedTiles[key] = true
+			}
+		}
+	}
+	
+	// Check for player death
+	if !gs.Player.IsAlive() {
+		gs.GameOver = true
+		gs.Message = "You died in a merge conflict!"
+	}
+}
+
+// IsMergeAffected checks if a tile is affected by a merge conflict
+func (gs *GameState) IsMergeAffected(x, y int) bool {
+	key := y*gs.Dungeon.Width + x
+	return gs.MergeAffectedTiles[key]
 }
