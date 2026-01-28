@@ -3,6 +3,8 @@ package game
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 func TestPlayerInitialHP(t *testing.T) {
@@ -273,6 +275,17 @@ func TestMergeConflictDamage(t *testing.T) {
 	if !gs.OnMergeConflict {
 		t.Error("OnMergeConflict flag should be true")
 	}
+
+	// Verify damage message format
+	expectedMsg := "- 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after merge conflict damage")
+	}
 }
 
 func TestMergeConflictNoDamageWhenNotOnTrap(t *testing.T) {
@@ -393,3 +406,95 @@ func TestMergeConflictIntegration(t *testing.T) {
 		t.Error("OnMergeConflict flag should be false when away from trap")
 	}
 }
+
+func TestEnemyDamageMessage(t *testing.T) {
+	// Create a game state
+	gs := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+
+	// Create a player with 10 HP
+	gs.Player = NewPlayer(5, 5)
+
+	// Test bug attack (1 damage)
+	enemy := NewBug(6, 5)
+	gs.Enemies = []*Entity{enemy}
+	gs.enemyAttacks()
+
+	expectedMsg := "A bug attacked - 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after enemy attack")
+	}
+
+	// Test scope creep attack (2 damage)
+	gs2 := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+	gs2.Player = NewPlayer(5, 5)
+	scopeCreep := NewScopeCreep(6, 5)
+	gs2.Enemies = []*Entity{scopeCreep}
+	gs2.enemyAttacks()
+
+	expectedMsg2 := "A scope creep attacked - 2 HP damage"
+	if gs2.Message != expectedMsg2 {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg2, gs2.Message)
+	}
+
+	// Verify MessageStyle is set for scope creep too
+	if gs2.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after scope creep attack")
+	}
+}
+
+func TestMessageStyleClearing(t *testing.T) {
+	// Create a game state
+	gs := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+
+	// Create a player and enemy
+	gs.Player = NewPlayer(5, 5)
+	enemy := NewBug(6, 5)
+	gs.Enemies = []*Entity{enemy}
+
+	// Enemy attacks, setting red damage message
+	gs.enemyAttacks()
+
+	expectedMsg := "A bug attacked - 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after enemy attack")
+	}
+
+	// Use SetMessage to set a normal message
+	gs.SetMessage("You attack!")
+
+	// Verify message is updated
+	if gs.Message != "You attack!" {
+		t.Errorf("Expected message 'You attack!', got '%s'", gs.Message)
+	}
+
+	// Verify MessageStyle is cleared (back to default/empty)
+	if gs.MessageStyle != (tcell.Style{}) {
+		t.Error("MessageStyle should be cleared after SetMessage")
+	}
+}
+

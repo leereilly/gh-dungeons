@@ -338,8 +338,11 @@ func (g *Game) render() {
 	}
 	if displayMsg != "" {
 		msgStyle := uiStyle
-		// Show warning message in red
-		if displayMsg == MergeConflictWarning {
+		// Use MessageStyle if set, otherwise use default
+		if g.state.MessageStyle != (tcell.Style{}) {
+			msgStyle = g.state.MessageStyle
+		} else if displayMsg == MergeConflictWarning {
+			// Show warning message in red
 			msgStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 		}
 		for i, ch := range displayMsg {
