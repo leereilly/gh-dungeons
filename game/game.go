@@ -332,19 +332,17 @@ func (g *Game) render() {
 		displayMsg = fmt.Sprintf("Welcome adventurer, %s", g.state.Username)
 	}
 
-	if displayMsg != "" {
-		for i, ch := range displayMsg {
 	// Clear the message line first to avoid leftover characters
 	for i := 0; i < width; i++ {
 		g.screen.SetContent(i, msgY, ' ', nil, tcell.StyleDefault)
 	}
-	if g.state.Message != "" {
+	if displayMsg != "" {
 		msgStyle := uiStyle
 		// Show warning message in red
-		if g.state.Message == MergeConflictWarning {
+		if displayMsg == MergeConflictWarning {
 			msgStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 		}
-		for i, ch := range g.state.Message {
+		for i, ch := range displayMsg {
 			if i < width {
 				g.screen.SetContent(i, msgY, ch, nil, msgStyle)
 			}

@@ -196,6 +196,9 @@ func TestUsernameInitialization(t *testing.T) {
 
 	if gs2.Username != "" {
 		t.Errorf("Username should be empty, got %s", gs2.Username)
+	}
+}
+
 func TestMergeConflictProximity(t *testing.T) {
 	// Create a game state
 	gs := &GameState{

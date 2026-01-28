@@ -201,6 +201,8 @@ func getUsername() string {
 	}
 
 	return ""
+}
+
 // MergeConflictLocation represents the location of a merge conflict
 type MergeConflictLocation struct {
 	File       string

@@ -8,28 +8,6 @@ const VisionRadius = 7
 const MergeConflictWarning = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
 
 type GameState struct {
-	Player         *Entity
-	Enemies        []*Entity
-	Potions        []*Entity
-	Dungeon        *Dungeon
-	Level          int
-	MaxLevel       int
-	DoorX          int
-	DoorY          int
-	Visible        [][]bool
-	Explored       [][]bool
-	GameOver       bool
-	Victory        bool
-	EnemiesKilled  int
-	Message        string
-	CodeFiles      []CodeFile
-	RNG            *rand.Rand
-	TermWidth      int
-	TermHeight     int
-	KonamiSequence []string
-	Invulnerable   bool
-	MoveCount      int
-	Username       string
 	Player                 *Entity
 	Enemies                []*Entity
 	Potions                []*Entity
@@ -50,6 +28,8 @@ type GameState struct {
 	TermHeight             int
 	KonamiSequence         []string
 	Invulnerable           bool
+	MoveCount              int
+	Username               string
 	MergeConflictX         int
 	MergeConflictY         int
 	OnMergeConflict        bool
@@ -69,16 +49,6 @@ func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *
 	rng := rand.New(rand.NewSource(seed))
 
 	gs := &GameState{
-		Level:          1,
-		MaxLevel:       5,
-		CodeFiles:      codeFiles,
-		RNG:            rng,
-		TermWidth:      termWidth,
-		TermHeight:     termHeight,
-		KonamiSequence: make([]string, 0),
-		Invulnerable:   false,
-		MoveCount:      0,
-		Username:       getUsername(),
 		Level:              1,
 		MaxLevel:           5,
 		CodeFiles:          codeFiles,
@@ -87,6 +57,8 @@ func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *
 		TermHeight:         termHeight,
 		KonamiSequence:     make([]string, 0),
 		Invulnerable:       false,
+		MoveCount:          0,
+		Username:           getUsername(),
 		MergeMarkerX:       -1,
 		MergeMarkerY:       -1,
 		MergeAffectedTiles: make(map[int]bool),
