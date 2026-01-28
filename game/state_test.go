@@ -3,6 +3,8 @@ package game
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 func TestKonamiCode(t *testing.T) {
@@ -380,3 +382,50 @@ func TestMergeConflictIntegration(t *testing.T) {
 		t.Error("OnMergeConflict flag should be false when away from trap")
 	}
 }
+
+func TestEnemyDamageMessage(t *testing.T) {
+	// Create a game state
+	gs := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+
+	// Create a player with 10 HP
+	gs.Player = NewPlayer(5, 5)
+
+	// Test bug attack (1 damage)
+	enemy := NewBug(6, 5)
+	gs.Enemies = []*Entity{enemy}
+	gs.enemyAttacks()
+
+	expectedMsg := "- 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set to red and bold
+	red := tcell.ColorRed
+	if gs.MessageStyle.Foreground(red) == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after enemy attack")
+	}
+
+	// Test scope creep attack (2 damage)
+	gs2 := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+	gs2.Player = NewPlayer(5, 5)
+	scopeCreep := NewScopeCreep(6, 5)
+	gs2.Enemies = []*Entity{scopeCreep}
+	gs2.enemyAttacks()
+
+	expectedMsg2 := "- 2 HP damage"
+	if gs2.Message != expectedMsg2 {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg2, gs2.Message)
+	}
+}
+

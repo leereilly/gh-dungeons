@@ -1,7 +1,10 @@
 package game
 
 import (
+	"fmt"
 	"math/rand"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 const VisionRadius = 7
@@ -22,6 +25,7 @@ type GameState struct {
 	Victory                bool
 	EnemiesKilled          int
 	Message                string
+	MessageStyle           tcell.Style           // Style for the message (e.g., red for damage)
 	CodeFiles              []CodeFile
 	RNG                    *rand.Rand
 	TermWidth              int
@@ -43,6 +47,12 @@ type GameState struct {
 	MergeMarkerY           int
 	MergeAffectedTiles     map[int]bool      // key: y*width + x
 	MergeAnimationStep     int               // cycles merge conflict markers on each move
+}
+
+// SetMessage sets a message with default (green) style
+func (gs *GameState) SetMessage(msg string) {
+	gs.Message = msg
+	gs.MessageStyle = tcell.Style{} // Clear custom style, use default
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
@@ -140,7 +150,7 @@ func (gs *GameState) generateLevel() {
 	gs.MergeAffectedTiles = make(map[int]bool)
 	
 	gs.updateVisibility()
-	gs.Message = ""
+	gs.SetMessage("")
 }
 
 func (gs *GameState) randomFloorTile() (int, int) {
@@ -191,12 +201,12 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			if !enemy.IsAlive() {
 				gs.EnemiesKilled++
 				if enemy.Type == EntityBug {
-					gs.Message = "You squashed a bug!"
+					gs.SetMessage("You squashed a bug!")
 				} else {
-					gs.Message = "You eliminated a scope creep!"
+					gs.SetMessage("You eliminated a scope creep!")
 				}
 			} else {
-				gs.Message = "You attack!"
+				gs.SetMessage("You attack!")
 			}
 			// Enemy turn after player attacks
 			gs.moveEnemies()
@@ -204,7 +214,7 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			gs.updateVisibility()
 			if !gs.Player.IsAlive() {
 				gs.GameOver = true
-				gs.Message = "You died!"
+				gs.SetMessage("You died!")
 			}
 			return
 		}
@@ -225,7 +235,7 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 		if potion.X == newX && potion.Y == newY {
 			gs.Player.Heal(3)
 			gs.Potions = append(gs.Potions[:i], gs.Potions[i+1:]...)
-			gs.Message = "You drink a health potion! (+3 HP)"
+			gs.SetMessage("You drink a health potion! (+3 HP)")
 			break
 		}
 	}
@@ -240,11 +250,11 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 	if newX == gs.DoorX && newY == gs.DoorY {
 		if gs.Level >= gs.MaxLevel {
 			gs.Victory = true
-			gs.Message = "You've escaped the dungeon! Victory!"
+			gs.SetMessage("You've escaped the dungeon! Victory!")
 		} else {
 			gs.Level++
 			gs.generateLevel()
-			gs.Message = "You descend deeper into the dungeon..."
+			gs.SetMessage("You descend deeper into the dungeon...")
 		}
 		return
 	}
@@ -302,12 +312,14 @@ func (gs *GameState) checkMergeConflict() {
 		// Deal 1 damage per turn while on the trap center
 		if !gs.Invulnerable {
 			gs.Player.TakeDamage(1)
-			gs.Message = "The merge conflict burns you for 1 damage!"
+			// Format merge conflict damage as "- X HP damage" in red
+			gs.Message = "- 1 HP damage"
+			gs.MessageStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 			if !gs.Player.IsAlive() {
 				gs.KilledBy = "merge_conflict"
 			}
 		} else {
-			gs.Message = "The merge conflict burns around you, but your invulnerability protects you!"
+			gs.SetMessage("The merge conflict burns around you, but your invulnerability protects you!")
 		}
 	} else if gs.MergeConflictTriggered {
 		// Player moved off the center - keep animating fire even outside the area
@@ -347,14 +359,14 @@ func (gs *GameState) processTurn() {
 	// Check player death
 	if !gs.Player.IsAlive() {
 		gs.GameOver = true
-		gs.Message = "You died!"
+		gs.SetMessage("You died!")
 		return
 	}
 	
 	// Show warning message if player is near merge conflict and no other message
 	distance := gs.distanceToMergeConflict()
 	if distance <= 2 && distance > 0 && gs.Message == "" {
-		gs.Message = MergeConflictWarning
+		gs.SetMessage(MergeConflictWarning)
 	}
 }
 
@@ -365,9 +377,9 @@ func (gs *GameState) playerAutoAttack() {
 			if !enemy.IsAlive() {
 				gs.EnemiesKilled++
 				if enemy.Type == EntityBug {
-					gs.Message = "You squashed a bug!"
+					gs.SetMessage("You squashed a bug!")
 				} else {
-					gs.Message = "You eliminated a scope creep!"
+					gs.SetMessage("You eliminated a scope creep!")
 				}
 			}
 		}
@@ -434,13 +446,14 @@ func (gs *GameState) enemyAttacks() {
 	for _, enemy := range gs.Enemies {
 		if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
 			gs.Player.TakeDamage(enemy.Damage)
+			// Format damage message as "- X HP damage" in red
+			gs.Message = fmt.Sprintf("- %d HP damage", enemy.Damage)
+			gs.MessageStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 			if enemy.Type == EntityBug {
-				gs.Message = "A bug bites you!"
 				if !gs.Player.IsAlive() {
 					gs.KilledBy = "bug"
 				}
 			} else {
-				gs.Message = "A scope creep attacks!"
 				if !gs.Player.IsAlive() {
 					gs.KilledBy = "scope_creep"
 				}
@@ -646,7 +659,7 @@ func (gs *GameState) CheckKonamiCode(key string) {
 		}
 		if match && !gs.Invulnerable {
 			gs.Invulnerable = true
-			gs.Message = "KONAMI CODE ACTIVATED! You are now invulnerable!"
+			gs.SetMessage("KONAMI CODE ACTIVATED! You are now invulnerable!")
 		}
 	}
 }
@@ -657,7 +670,7 @@ func (gs *GameState) triggerMergeConflict() {
 	if !gs.Invulnerable {
 		gs.Player.TakeDamage(2)
 	}
-	gs.Message = "MERGE CONFLICT! The code tears apart around you!"
+	gs.SetMessage("MERGE CONFLICT! The code tears apart around you!")
 	
 	// Mark surrounding tiles as affected (3x3 area around the marker)
 	for dy := -1; dy <= 1; dy++ {
@@ -674,7 +687,7 @@ func (gs *GameState) triggerMergeConflict() {
 	// Check for player death
 	if !gs.Player.IsAlive() {
 		gs.GameOver = true
-		gs.Message = "You died in a merge conflict!"
+		gs.SetMessage("You died in a merge conflict!")
 	}
 }
 
