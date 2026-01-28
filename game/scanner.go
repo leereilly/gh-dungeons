@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -129,9 +130,52 @@ func findCodeFiles(root string, minLines, maxFiles int) ([]CodeFile, error) {
 
 func computeSeed(files []CodeFile) int64 {
 	h := sha256.New()
+
+	// Include git repo identity (remote origin or repo name)
+	if repoID := getRepoIdentity(); repoID != "" {
+		h.Write([]byte(repoID))
+	}
+
+	// Include current git commit SHA
+	if commitSHA := getGitCommitSHA(); commitSHA != "" {
+		h.Write([]byte(commitSHA))
+	}
+
+	// Include code file content hashes
 	for _, f := range files {
 		h.Write([]byte(f.SHA))
 	}
+
 	sum := h.Sum(nil)
 	return int64(binary.BigEndian.Uint64(sum[:8]))
+}
+
+// getRepoIdentity returns the git remote origin URL or repo root name
+func getRepoIdentity() string {
+	// Try to get remote origin URL first (unique across forks)
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	if output, err := cmd.Output(); err == nil {
+		if url := strings.TrimSpace(string(output)); url != "" {
+			return url
+		}
+	}
+
+	// Fall back to repo root directory name
+	cmd = exec.Command("git", "rev-parse", "--show-toplevel")
+	if output, err := cmd.Output(); err == nil {
+		if root := strings.TrimSpace(string(output)); root != "" {
+			return filepath.Base(root)
+		}
+	}
+
+	return ""
+}
+
+// getGitCommitSHA returns the current HEAD commit SHA
+func getGitCommitSHA() string {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	if output, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(output))
+	}
+	return ""
 }

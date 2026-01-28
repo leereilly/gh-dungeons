@@ -22,21 +22,25 @@ type GameState struct {
 	EnemiesKilled int
 	Message       string
 	CodeFiles     []CodeFile
-	RNG           *rand.Rand
-	TermWidth     int
-	TermHeight    int
+	RNG            *rand.Rand
+	TermWidth      int
+	TermHeight     int
+	KonamiSequence []string
+	Invulnerable   bool
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
 	rng := rand.New(rand.NewSource(seed))
 	
 	gs := &GameState{
-		Level:      1,
-		MaxLevel:   5,
-		CodeFiles:  codeFiles,
-		RNG:        rng,
-		TermWidth:  termWidth,
-		TermHeight: termHeight,
+		Level:          1,
+		MaxLevel:       5,
+		CodeFiles:      codeFiles,
+		RNG:            rng,
+		TermWidth:      termWidth,
+		TermHeight:     termHeight,
+		KonamiSequence: make([]string, 0),
+		Invulnerable:   false,
 	}
 	
 	gs.generateLevel()
@@ -288,6 +292,11 @@ func (gs *GameState) canEnemyMoveTo(x, y int, self *Entity) bool {
 }
 
 func (gs *GameState) enemyAttacks() {
+	if gs.Invulnerable {
+		// Player is invulnerable, enemies do no damage
+		return
+	}
+	
 	for _, enemy := range gs.Enemies {
 		if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
 			gs.Player.TakeDamage(enemy.Damage)
@@ -409,4 +418,32 @@ func (gs *GameState) Resize(termWidth, termHeight int) {
 	gs.TermWidth = termWidth
 	gs.TermHeight = termHeight
 	gs.generateLevel()
+}
+
+// CheckKonamiCode checks if the given key press completes the Konami code
+// Konami code: up, up, down, down, left, right, left, right, B, A
+func (gs *GameState) CheckKonamiCode(key string) {
+	konamiCode := []string{"up", "up", "down", "down", "left", "right", "left", "right", "b", "a"}
+	
+	gs.KonamiSequence = append(gs.KonamiSequence, key)
+	
+	// Keep only the last 10 keys
+	if len(gs.KonamiSequence) > 10 {
+		gs.KonamiSequence = gs.KonamiSequence[len(gs.KonamiSequence)-10:]
+	}
+	
+	// Check if the sequence matches the Konami code
+	if len(gs.KonamiSequence) == 10 {
+		match := true
+		for i := 0; i < 10; i++ {
+			if gs.KonamiSequence[i] != konamiCode[i] {
+				match = false
+				break
+			}
+		}
+		if match && !gs.Invulnerable {
+			gs.Invulnerable = true
+			gs.Message = "KONAMI CODE ACTIVATED! You are now invulnerable!"
+		}
+	}
 }
