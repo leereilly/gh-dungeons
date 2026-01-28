@@ -167,6 +167,16 @@ func TestMoveCounter(t *testing.T) {
 	if gs.MoveCount != initialMoveCount {
 		t.Errorf("MoveCount should not increment when blocked by wall, expected %d, got %d", initialMoveCount, gs.MoveCount)
 	}
+
+	// Try to attack an enemy (shouldn't increment counter)
+	enemy := NewBug(7, 6) // Place enemy at position we're trying to move to
+	gs.Dungeon.Tiles[6][7] = TileFloor // Clear the wall
+	gs.Enemies = []*Entity{enemy}
+	initialMoveCount = gs.MoveCount
+	gs.MovePlayer(1, 0) // Try to move right into enemy (attack)
+	if gs.MoveCount != initialMoveCount {
+		t.Errorf("MoveCount should not increment when attacking enemy, expected %d, got %d", initialMoveCount, gs.MoveCount)
+	}
 }
 
 func TestUsernameInitialization(t *testing.T) {
