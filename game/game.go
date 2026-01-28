@@ -235,16 +235,9 @@ func (g *Game) render() {
 		}
 	}
 	
-	// Render merge conflict trap (if visible and not on fire)
-	if g.state.Visible[g.state.MergeConflictY][g.state.MergeConflictX] && !g.state.OnMergeConflict {
-		// Render as a red 'X' when not active
-		trapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkRed).Background(tcell.ColorBlack)
-		g.screen.SetContent(offsetX+g.state.MergeConflictX, offsetY+g.state.MergeConflictY, 'X', nil, trapStyle)
-	}
-	
-	// Render fire effect if player is on merge conflict
+	// Render merge conflict if player is on it (5x5 grid)
 	if g.state.OnMergeConflict {
-		g.renderFire(offsetX, offsetY)
+		g.renderMergeConflict(offsetX, offsetY)
 	}
 
 	// Render enemies
@@ -296,56 +289,86 @@ func (g *Game) render() {
 	}
 }
 
-func (g *Game) renderFire(offsetX, offsetY int) {
-	// Fire chars for flickering effect
-	fireChars := []rune{'▓', '▒', '░', '█', '▄', '▀'}
-	
-	// Red and orange colors for fire
-	fireColors := []tcell.Color{
+func (g *Game) renderMergeConflict(offsetX, offsetY int) {
+	// Colors for merge conflict: red, orange, yellow
+	colors := []tcell.Color{
 		tcell.ColorRed,
-		tcell.ColorDarkRed,
-		tcell.ColorOrangeRed,
 		tcell.ColorOrange,
-		tcell.ColorRed,
-		tcell.ColorMaroon,
+		tcell.ColorYellow,
 	}
 	
 	centerX := g.state.MergeConflictX
 	centerY := g.state.MergeConflictY
 	
-	// Render fire in a 3-tile radius (up to 3 squares away)
-	for dy := -3; dy <= 3; dy++ {
-		for dx := -3; dx <= 3; dx++ {
-			fireX := centerX + dx
-			fireY := centerY + dy
+	// Define the patterns based on movement count (3 rows x 5 cols)
+	var pattern []string
+	movements := g.state.MergeConflictMovements
+	
+	if movements == 0 {
+		// Initial pattern
+		pattern = []string{
+			"<<<<<",
+			"=====",
+			">>>>>",
+		}
+	} else if movements == 1 {
+		// After 1st movement
+		pattern = []string{
+			">>>>>",
+			"<<<<<",
+			"=====",
+		}
+	} else if movements == 2 {
+		// After 2nd movement
+		pattern = []string{
+			"=====",
+			">>>>>",
+			"<<<<<",
+		}
+	} else {
+		// After 2nd movement, randomize between <, >, and =
+		pattern = make([]string, 5)
+		chars := []rune{'<', '>', '='}
+		for row := 0; row < 5; row++ {
+			rowStr := ""
+			for col := 0; col < 5; col++ {
+				charIdx := g.state.RNG.Intn(len(chars))
+				rowStr += string(chars[charIdx])
+			}
+			pattern[row] = rowStr
+		}
+	}
+	
+	// Calculate the size of the pattern
+	patternHeight := len(pattern)
+	patternWidth := 5 // All patterns are 5 characters wide
+	
+	// Render centered on the merge conflict position
+	startY := -(patternHeight / 2)
+	startX := -(patternWidth / 2)
+	
+	for row := 0; row < patternHeight; row++ {
+		for col := 0; col < patternWidth && col < len(pattern[row]); col++ {
+			mcX := centerX + startX + col
+			mcY := centerY + startY + row
 			
 			// Skip if out of bounds
-			if fireX < 0 || fireX >= g.state.Dungeon.Width || fireY < 0 || fireY >= g.state.Dungeon.Height {
+			if mcX < 0 || mcX >= g.state.Dungeon.Width || mcY < 0 || mcY >= g.state.Dungeon.Height {
 				continue
 			}
 			
-			// Only show fire on walkable tiles and if visible
-			if !g.state.Dungeon.IsWalkable(fireX, fireY) || !g.state.Visible[fireY][fireX] {
+			// Only show on walkable tiles and if visible
+			if !g.state.Dungeon.IsWalkable(mcX, mcY) || !g.state.Visible[mcY][mcX] {
 				continue
 			}
 			
-			// Calculate distance for fire intensity
-			dist := abs(dx)
-			if abs(dy) > dist {
-				dist = abs(dy)
+			ch := rune(pattern[row][col])
+			if ch != ' ' {
+				// Random color for each character
+				colorIdx := g.state.RNG.Intn(len(colors))
+				mcStyle := tcell.StyleDefault.Foreground(colors[colorIdx]).Background(tcell.ColorBlack)
+				g.screen.SetContent(offsetX+mcX, offsetY+mcY, ch, nil, mcStyle)
 			}
-			
-			// Use FireTick to animate (flicker every few frames)
-			colorIdx := (g.state.FireTick + dx + dy) % len(fireColors)
-			charIdx := (g.state.FireTick + dx*2 + dy*3) % len(fireChars)
-			
-			// Occasional orange color (less frequent)
-			if (g.state.FireTick+dx+dy)%7 == 0 {
-				colorIdx = 3 // Orange
-			}
-			
-			fireStyle := tcell.StyleDefault.Foreground(fireColors[colorIdx]).Background(tcell.ColorBlack)
-			g.screen.SetContent(offsetX+fireX, offsetY+fireY, fireChars[charIdx], nil, fireStyle)
 		}
 	}
 }

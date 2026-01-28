@@ -8,30 +8,30 @@ const VisionRadius = 7
 const MergeConflictWarning = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
 
 type GameState struct {
-	Player          *Entity
-	Enemies         []*Entity
-	Potions         []*Entity
-	Dungeon         *Dungeon
-	Level           int
-	MaxLevel        int
-	DoorX           int
-	DoorY           int
-	Visible         [][]bool
-	Explored        [][]bool
-	GameOver        bool
-	Victory         bool
-	EnemiesKilled   int
-	Message         string
-	CodeFiles       []CodeFile
-	RNG             *rand.Rand
-	TermWidth       int
-	TermHeight      int
-	KonamiSequence  []string
-	Invulnerable    bool
-	MergeConflictX  int
-	MergeConflictY  int
-	OnMergeConflict bool
-	FireTick        int // For animating fire
+	Player                 *Entity
+	Enemies                []*Entity
+	Potions                []*Entity
+	Dungeon                *Dungeon
+	Level                  int
+	MaxLevel               int
+	DoorX                  int
+	DoorY                  int
+	Visible                [][]bool
+	Explored               [][]bool
+	GameOver               bool
+	Victory                bool
+	EnemiesKilled          int
+	Message                string
+	CodeFiles              []CodeFile
+	RNG                    *rand.Rand
+	TermWidth              int
+	TermHeight             int
+	KonamiSequence         []string
+	Invulnerable           bool
+	MergeConflictX         int
+	MergeConflictY         int
+	OnMergeConflict        bool
+	MergeConflictMovements int // Track player movements on merge conflict
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
@@ -238,7 +238,11 @@ func (gs *GameState) checkMergeConflict() {
 	onTrap := gs.Player.X == gs.MergeConflictX && gs.Player.Y == gs.MergeConflictY
 	
 	if onTrap {
-		gs.OnMergeConflict = true
+		if !gs.OnMergeConflict {
+			// Player just stepped on the trap
+			gs.OnMergeConflict = true
+			gs.MergeConflictMovements = 0
+		}
 		// Deal 1 damage per turn while on the trap
 		if !gs.Invulnerable {
 			gs.Player.TakeDamage(1)
@@ -247,6 +251,10 @@ func (gs *GameState) checkMergeConflict() {
 			gs.Message = "The merge conflict burns around you, but your invulnerability protects you!"
 		}
 	} else {
+		if gs.OnMergeConflict {
+			// Player just moved off the trap, reset movement counter
+			gs.MergeConflictMovements = 0
+		}
 		gs.OnMergeConflict = false
 	}
 }
@@ -258,6 +266,11 @@ func (gs *GameState) processTurn() {
 	// Check merge conflict proximity and damage
 	gs.checkMergeConflict()
 	
+	// Increment merge conflict movement counter if on trap
+	if gs.OnMergeConflict {
+		gs.MergeConflictMovements++
+	}
+	
 	// Enemy turn
 	gs.moveEnemies()
 	
@@ -266,9 +279,6 @@ func (gs *GameState) processTurn() {
 	
 	// Update visibility
 	gs.updateVisibility()
-	
-	// Increment fire tick for animation
-	gs.FireTick++
 	
 	// Check player death
 	if !gs.Player.IsAlive() {
