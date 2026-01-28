@@ -5,6 +5,7 @@ import (
 )
 
 const VisionRadius = 7
+const MergeConflictWarning = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
 
 type GameState struct {
 	Player          *Entity
@@ -92,6 +93,10 @@ func (gs *GameState) generateLevel() {
 	// Place door
 	gs.DoorX, gs.DoorY = gs.Dungeon.PlaceDoor(gs.RNG)
 	
+	// Place merge conflict trap (one per level) - place before enemies/potions
+	gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
+	gs.OnMergeConflict = false
+	
 	// Spawn enemies
 	gs.Enemies = nil
 	numEnemies := 3 + gs.Level*2
@@ -111,10 +116,6 @@ func (gs *GameState) generateLevel() {
 		x, y := gs.randomFloorTile()
 		gs.Potions = append(gs.Potions, NewPotion(x, y))
 	}
-	
-	// Place merge conflict trap (one per level)
-	gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
-	gs.OnMergeConflict = false
 	
 	gs.updateVisibility()
 	gs.Message = ""
@@ -242,6 +243,8 @@ func (gs *GameState) checkMergeConflict() {
 		if !gs.Invulnerable {
 			gs.Player.TakeDamage(1)
 			gs.Message = "The merge conflict burns you for 1 damage!"
+		} else {
+			gs.Message = "The merge conflict burns around you, but your invulnerability protects you!"
 		}
 	} else {
 		gs.OnMergeConflict = false
@@ -267,16 +270,17 @@ func (gs *GameState) processTurn() {
 	// Increment fire tick for animation
 	gs.FireTick++
 	
-	// Show warning message if player is near merge conflict and no other message
-	distance := gs.distanceToMergeConflict()
-	if distance <= 2 && distance > 0 && gs.Message == "" {
-		gs.Message = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
-	}
-	
 	// Check player death
 	if !gs.Player.IsAlive() {
 		gs.GameOver = true
 		gs.Message = "You died!"
+		return
+	}
+	
+	// Show warning message if player is near merge conflict and no other message
+	distance := gs.distanceToMergeConflict()
+	if distance <= 2 && distance > 0 && gs.Message == "" {
+		gs.Message = MergeConflictWarning
 	}
 }
 

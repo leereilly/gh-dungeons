@@ -280,7 +280,7 @@ func (g *Game) render() {
 		msgY := height - 1
 		msgStyle := uiStyle
 		// Show warning message in red
-		if g.state.Message == "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY." {
+		if g.state.Message == MergeConflictWarning {
 			msgStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 		}
 		for i, ch := range g.state.Message {
@@ -313,7 +313,7 @@ func (g *Game) renderFire(offsetX, offsetY int) {
 	centerX := g.state.MergeConflictX
 	centerY := g.state.MergeConflictY
 	
-	// Render fire in a 3-level radius (up to 3 squares away)
+	// Render fire in a 3-tile radius (up to 3 squares away)
 	for dy := -3; dy <= 3; dy++ {
 		for dx := -3; dx <= 3; dx++ {
 			fireX := centerX + dx
@@ -335,19 +335,17 @@ func (g *Game) renderFire(offsetX, offsetY int) {
 				dist = abs(dy)
 			}
 			
-			if dist <= 3 {
-				// Use FireTick to animate (flicker every few frames)
-				colorIdx := (g.state.FireTick + dx + dy) % len(fireColors)
-				charIdx := (g.state.FireTick + dx*2 + dy*3) % len(fireChars)
-				
-				// Occasional orange color (less frequent)
-				if (g.state.FireTick+dx+dy)%7 == 0 {
-					colorIdx = 3 // Orange
-				}
-				
-				fireStyle := tcell.StyleDefault.Foreground(fireColors[colorIdx]).Background(tcell.ColorBlack)
-				g.screen.SetContent(offsetX+fireX, offsetY+fireY, fireChars[charIdx], nil, fireStyle)
+			// Use FireTick to animate (flicker every few frames)
+			colorIdx := (g.state.FireTick + dx + dy) % len(fireColors)
+			charIdx := (g.state.FireTick + dx*2 + dy*3) % len(fireChars)
+			
+			// Occasional orange color (less frequent)
+			if (g.state.FireTick+dx+dy)%7 == 0 {
+				colorIdx = 3 // Orange
 			}
+			
+			fireStyle := tcell.StyleDefault.Foreground(fireColors[colorIdx]).Background(tcell.ColorBlack)
+			g.screen.SetContent(offsetX+fireX, offsetY+fireY, fireChars[charIdx], nil, fireStyle)
 		}
 	}
 }
