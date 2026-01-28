@@ -234,6 +234,18 @@ func (g *Game) render() {
 			g.screen.SetContent(offsetX+potion.X, offsetY+potion.Y, potion.Symbol, nil, potionStyle)
 		}
 	}
+	
+	// Render merge conflict trap (if visible and not on fire)
+	if g.state.Visible[g.state.MergeConflictY][g.state.MergeConflictX] && !g.state.OnMergeConflict {
+		// Render as a red 'X' when not active
+		trapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkRed).Background(tcell.ColorBlack)
+		g.screen.SetContent(offsetX+g.state.MergeConflictX, offsetY+g.state.MergeConflictY, 'X', nil, trapStyle)
+	}
+	
+	// Render fire effect if player is on merge conflict
+	if g.state.OnMergeConflict {
+		g.renderFire(offsetX, offsetY)
+	}
 
 	// Render enemies
 	for _, enemy := range g.state.Enemies {
@@ -266,9 +278,14 @@ func (g *Game) render() {
 	// Render message at bottom left of screen
 	if g.state.Message != "" {
 		msgY := height - 1
+		msgStyle := uiStyle
+		// Show warning message in red
+		if g.state.Message == "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY." {
+			msgStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+		}
 		for i, ch := range g.state.Message {
 			if i < width {
-				g.screen.SetContent(i, msgY, ch, nil, uiStyle)
+				g.screen.SetContent(i, msgY, ch, nil, msgStyle)
 			}
 		}
 	}
@@ -276,6 +293,62 @@ func (g *Game) render() {
 	// Game over / Victory screen
 	if g.state.GameOver || g.state.Victory {
 		g.renderEndScreen(width, height)
+	}
+}
+
+func (g *Game) renderFire(offsetX, offsetY int) {
+	// Fire chars for flickering effect
+	fireChars := []rune{'▓', '▒', '░', '█', '▄', '▀'}
+	
+	// Red and orange colors for fire
+	fireColors := []tcell.Color{
+		tcell.ColorRed,
+		tcell.ColorDarkRed,
+		tcell.ColorOrangeRed,
+		tcell.ColorOrange,
+		tcell.ColorRed,
+		tcell.ColorMaroon,
+	}
+	
+	centerX := g.state.MergeConflictX
+	centerY := g.state.MergeConflictY
+	
+	// Render fire in a 3-level radius (up to 3 squares away)
+	for dy := -3; dy <= 3; dy++ {
+		for dx := -3; dx <= 3; dx++ {
+			fireX := centerX + dx
+			fireY := centerY + dy
+			
+			// Skip if out of bounds
+			if fireX < 0 || fireX >= g.state.Dungeon.Width || fireY < 0 || fireY >= g.state.Dungeon.Height {
+				continue
+			}
+			
+			// Only show fire on walkable tiles and if visible
+			if !g.state.Dungeon.IsWalkable(fireX, fireY) || !g.state.Visible[fireY][fireX] {
+				continue
+			}
+			
+			// Calculate distance for fire intensity
+			dist := abs(dx)
+			if abs(dy) > dist {
+				dist = abs(dy)
+			}
+			
+			if dist <= 3 {
+				// Use FireTick to animate (flicker every few frames)
+				colorIdx := (g.state.FireTick + dx + dy) % len(fireColors)
+				charIdx := (g.state.FireTick + dx*2 + dy*3) % len(fireChars)
+				
+				// Occasional orange color (less frequent)
+				if (g.state.FireTick+dx+dy)%7 == 0 {
+					colorIdx = 3 // Orange
+				}
+				
+				fireStyle := tcell.StyleDefault.Foreground(fireColors[colorIdx]).Background(tcell.ColorBlack)
+				g.screen.SetContent(offsetX+fireX, offsetY+fireY, fireChars[charIdx], nil, fireStyle)
+			}
+		}
 	}
 }
 

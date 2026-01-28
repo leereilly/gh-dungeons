@@ -7,26 +7,30 @@ import (
 const VisionRadius = 7
 
 type GameState struct {
-	Player        *Entity
-	Enemies       []*Entity
-	Potions       []*Entity
-	Dungeon       *Dungeon
-	Level         int
-	MaxLevel      int
-	DoorX         int
-	DoorY         int
-	Visible       [][]bool
-	Explored      [][]bool
-	GameOver      bool
-	Victory       bool
-	EnemiesKilled int
-	Message       string
-	CodeFiles      []CodeFile
-	RNG            *rand.Rand
-	TermWidth      int
-	TermHeight     int
-	KonamiSequence []string
-	Invulnerable   bool
+	Player          *Entity
+	Enemies         []*Entity
+	Potions         []*Entity
+	Dungeon         *Dungeon
+	Level           int
+	MaxLevel        int
+	DoorX           int
+	DoorY           int
+	Visible         [][]bool
+	Explored        [][]bool
+	GameOver        bool
+	Victory         bool
+	EnemiesKilled   int
+	Message         string
+	CodeFiles       []CodeFile
+	RNG             *rand.Rand
+	TermWidth       int
+	TermHeight      int
+	KonamiSequence  []string
+	Invulnerable    bool
+	MergeConflictX  int
+	MergeConflictY  int
+	OnMergeConflict bool
+	FireTick        int // For animating fire
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
@@ -108,6 +112,10 @@ func (gs *GameState) generateLevel() {
 		gs.Potions = append(gs.Potions, NewPotion(x, y))
 	}
 	
+	// Place merge conflict trap (one per level)
+	gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
+	gs.OnMergeConflict = false
+	
 	gs.updateVisibility()
 	gs.Message = ""
 }
@@ -127,6 +135,10 @@ func (gs *GameState) randomFloorTile() (int, int) {
 				continue
 			}
 			if x == gs.DoorX && y == gs.DoorY {
+				continue
+			}
+			// Check not on merge conflict trap (if already placed)
+			if x == gs.MergeConflictX && y == gs.MergeConflictY {
 				continue
 			}
 			return x, y
@@ -201,12 +213,53 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 		return
 	}
 	
+	// Check merge conflict proximity and update message
+	distance := gs.distanceToMergeConflict()
+	if distance <= 2 {
+		gs.Message = "WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."
+	}
+	
 	gs.processTurn()
+}
+
+func (gs *GameState) distanceToMergeConflict() int {
+	dx := gs.Player.X - gs.MergeConflictX
+	dy := gs.Player.Y - gs.MergeConflictY
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	// Use Chebyshev distance (max of abs differences)
+	if dx > dy {
+		return dx
+	}
+	return dy
+}
+
+func (gs *GameState) checkMergeConflict() {
+	// Check if player is on merge conflict trap
+	onTrap := gs.Player.X == gs.MergeConflictX && gs.Player.Y == gs.MergeConflictY
+	
+	if onTrap {
+		gs.OnMergeConflict = true
+		// Deal 1 damage per turn while on the trap
+		if !gs.Invulnerable {
+			gs.Player.TakeDamage(1)
+			gs.Message = "The merge conflict burns you for 1 damage!"
+		}
+	} else {
+		gs.OnMergeConflict = false
+	}
 }
 
 func (gs *GameState) processTurn() {
 	// Auto-attack adjacent enemies
 	gs.playerAutoAttack()
+	
+	// Check merge conflict proximity and damage
+	gs.checkMergeConflict()
 	
 	// Enemy turn
 	gs.moveEnemies()
@@ -216,6 +269,9 @@ func (gs *GameState) processTurn() {
 	
 	// Update visibility
 	gs.updateVisibility()
+	
+	// Increment fire tick for animation
+	gs.FireTick++
 	
 	// Check player death
 	if !gs.Player.IsAlive() {
