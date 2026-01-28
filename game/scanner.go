@@ -201,4 +201,69 @@ func getUsername() string {
 	}
 
 	return ""
+// MergeConflictLocation represents the location of a merge conflict
+type MergeConflictLocation struct {
+	File       string
+	StartLine  int
+	EndLine    int
+	CenterLine int
+}
+
+// findMergeConflict searches for merge conflicts in the repository
+func findMergeConflict(root string) *MergeConflictLocation {
+	var result *MergeConflictLocation
+
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || result != nil {
+			return nil
+		}
+
+		// Skip hidden directories and common non-code directories
+		if info.IsDir() {
+			name := info.Name()
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "dist" || name == "build" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check if file has merge conflict markers
+		file, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		lineNum := 0
+		startLine := -1
+		endLine := -1
+
+		for scanner.Scan() {
+			lineNum++
+			line := scanner.Text()
+
+			if strings.HasPrefix(line, "<<<<<<<") {
+				startLine = lineNum
+			} else if strings.HasPrefix(line, ">>>>>>>") && startLine != -1 {
+				endLine = lineNum
+				// Found a complete merge conflict
+				relPath, _ := filepath.Rel(root, path)
+				if relPath == "" {
+					relPath = path
+				}
+				result = &MergeConflictLocation{
+					File:       relPath,
+					StartLine:  startLine,
+					EndLine:    endLine,
+					CenterLine: (startLine + endLine) / 2,
+				}
+				return nil
+			}
+		}
+
+		return nil
+	})
+
+	return result
 }

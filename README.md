@@ -1,6 +1,8 @@
 # gh-dungeons 🎮
 
-A roguelike dungeon crawler that turns your codebase into a playable game! This GitHub CLI extension procedurally generates dungeons using your repository's code files.
+A procedurally generated roguelike dungeon crawler that turns your repos into a unique playable game!
+
+Built using [GitHub Copilot CLI](https://github.com/features/copilot/cli) for the [GitHub Copilot CLI Challenge](https://dev.to/leereilly/a-procedurally-generated-github-cli-roguelike-where-every-dungeon-is-built-from-your-code-1ef).
 
 ![Demo GIF](assets/demo.gif)
 
