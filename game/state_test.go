@@ -429,3 +429,44 @@ func TestEnemyDamageMessage(t *testing.T) {
 	}
 }
 
+func TestMessageStyleClearing(t *testing.T) {
+	// Create a game state
+	gs := &GameState{
+		Level:        1,
+		MaxLevel:     5,
+		RNG:          rand.New(rand.NewSource(42)),
+		Invulnerable: false,
+	}
+
+	// Create a player and enemy
+	gs.Player = NewPlayer(5, 5)
+	enemy := NewBug(6, 5)
+	gs.Enemies = []*Entity{enemy}
+
+	// Enemy attacks, setting red damage message
+	gs.enemyAttacks()
+
+	expectedMsg := "- 1 HP damage"
+	if gs.Message != expectedMsg {
+		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
+	}
+
+	// Verify MessageStyle is set (not default/empty)
+	if gs.MessageStyle == (tcell.Style{}) {
+		t.Error("MessageStyle should be set after enemy attack")
+	}
+
+	// Use SetMessage to set a normal message
+	gs.SetMessage("You attack!")
+
+	// Verify message is updated
+	if gs.Message != "You attack!" {
+		t.Errorf("Expected message 'You attack!', got '%s'", gs.Message)
+	}
+
+	// Verify MessageStyle is cleared (back to default/empty)
+	if gs.MessageStyle != (tcell.Style{}) {
+		t.Error("MessageStyle should be cleared after SetMessage")
+	}
+}
+
