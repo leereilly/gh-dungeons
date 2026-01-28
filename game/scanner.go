@@ -179,3 +179,26 @@ func getGitCommitSHA() string {
 	}
 	return ""
 }
+
+// getUsername returns the username to display in the welcome message.
+// It tries GitHub username first (with @), then falls back to Git user.name (without @).
+// Returns empty string if neither is found.
+func getUsername() string {
+	// Try GitHub username first
+	cmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	if output, err := cmd.Output(); err == nil {
+		if username := strings.TrimSpace(string(output)); username != "" {
+			return "@" + username
+		}
+	}
+
+	// Fall back to Git user.name
+	cmd = exec.Command("git", "config", "user.name")
+	if output, err := cmd.Output(); err == nil {
+		if username := strings.TrimSpace(string(output)); username != "" {
+			return username
+		}
+	}
+
+	return ""
+}

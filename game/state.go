@@ -27,6 +27,8 @@ type GameState struct {
 	TermHeight     int
 	KonamiSequence []string
 	Invulnerable   bool
+	MoveCount      int
+	Username       string
 }
 
 func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *GameState {
@@ -41,6 +43,8 @@ func NewGameState(codeFiles []CodeFile, seed int64, termWidth, termHeight int) *
 		TermHeight:     termHeight,
 		KonamiSequence: make([]string, 0),
 		Invulnerable:   false,
+		MoveCount:      0,
+		Username:       getUsername(),
 	}
 	
 	gs.generateLevel()
@@ -177,6 +181,7 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 	
 	gs.Player.X = newX
 	gs.Player.Y = newY
+	gs.MoveCount++
 	
 	// Check for potion pickup
 	for i, potion := range gs.Potions {
