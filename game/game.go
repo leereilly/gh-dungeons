@@ -8,11 +8,32 @@ import (
 )
 
 type Game struct {
-	screen tcell.Screen
-	state  *GameState
+	screen    tcell.Screen
+	state     *GameState
+	mergeMode bool
 }
 
-func New() (*Game, error) {
+// GameOption configures Game creation
+type GameOption func(*gameOptions)
+
+type gameOptions struct {
+	mergeMode bool
+}
+
+// WithMergeMode enables merge conflict display mode
+func WithMergeMode(enabled bool) GameOption {
+	return func(o *gameOptions) {
+		o.mergeMode = enabled
+	}
+}
+
+func New(opts ...GameOption) (*Game, error) {
+	// Apply options
+	options := &gameOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	// Find code files in current directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -22,6 +43,12 @@ func New() (*Game, error) {
 	codeFiles, err := findCodeFiles(cwd, 60, 5)
 	if err != nil {
 		return nil, fmt.Errorf("scanning code files: %w", err)
+	}
+
+	// Find merge conflict location if in merge mode
+	var mergeConflict *MergeConflictLocation
+	if options.mergeMode {
+		mergeConflict = findMergeConflict(cwd)
 	}
 
 	// Compute seed from code files
@@ -44,10 +71,12 @@ func New() (*Game, error) {
 
 	width, height := screen.Size()
 	state := NewGameState(codeFiles, seed, width, height)
+	state.MergeConflict = mergeConflict
 
 	return &Game{
-		screen: screen,
-		state:  state,
+		screen:    screen,
+		state:     state,
+		mergeMode: options.mergeMode,
 	}, nil
 }
 
@@ -162,6 +191,7 @@ func (g *Game) render() {
 	potionStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	doorStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack).Bold(true)
 	fogStyle := tcell.StyleDefault.Foreground(tcell.Color240).Background(tcell.ColorBlack)
+	mergeAffectedStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
 
 	// Get code lines for background
 	var codeLines []string
@@ -224,6 +254,14 @@ func (g *Game) render() {
 				}
 			}
 
+			// Override style for merge-affected tiles (show in red with conflict chars)
+			if g.state.IsMergeAffected(x, y) && visible {
+				style = mergeAffectedStyle
+				// Change character to conflict markers, cycling with player movement
+				conflictChars := []rune{'<', '>', '='}
+				ch = conflictChars[(x+y+g.state.MergeAnimationStep)%len(conflictChars)]
+			}
+
 			g.screen.SetContent(offsetX+x, offsetY+y, ch, nil, style)
 		}
 	}
@@ -245,6 +283,15 @@ func (g *Game) render() {
 	// Render player
 	g.screen.SetContent(offsetX+g.state.Player.X, offsetY+g.state.Player.Y, g.state.Player.Symbol, nil, playerStyle)
 
+	// Render merge conflict marker (red X at center of the most central room)
+	if g.mergeMode {
+		mergeStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+		markerX, markerY := findCentralRoomCenter(dungeon)
+		if markerX >= 0 && markerY >= 0 {
+			g.screen.SetContent(offsetX+markerX, offsetY+markerY, 'X', nil, mergeStyle)
+		}
+	}
+
 	// Render UI bar at bottom left of screen
 	uiY := height - 2
 	invulnStatus := ""
@@ -264,11 +311,38 @@ func (g *Game) render() {
 	}
 
 	// Render message at bottom left of screen
+	msgY := height - 1
+	// Clear the message line first to avoid leftover characters
+	for i := 0; i < width; i++ {
+		g.screen.SetContent(i, msgY, ' ', nil, tcell.StyleDefault)
+	}
 	if g.state.Message != "" {
-		msgY := height - 1
 		for i, ch := range g.state.Message {
 			if i < width {
 				g.screen.SetContent(i, msgY, ch, nil, uiStyle)
+			}
+		}
+	}
+
+	// Render merge conflict warning if player is within 2 chars of merge marker center
+	// Only show warning if conflict hasn't been triggered yet (no affected tiles)
+	if g.mergeMode && g.state.MergeMarkerX >= 0 && g.state.MergeMarkerY >= 0 && len(g.state.MergeAffectedTiles) == 0 {
+		dx := g.state.Player.X - g.state.MergeMarkerX
+		dy := g.state.Player.Y - g.state.MergeMarkerY
+		if dx < 0 {
+			dx = -dx
+		}
+		if dy < 0 {
+			dy = -dy
+		}
+		if dx <= 2 && dy <= 2 {
+			warningStyle := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+			warningMsg := "WARNING: Merge conflict detected"
+			msgY := height - 1
+			for i, ch := range warningMsg {
+				if i < width {
+					g.screen.SetContent(i, msgY, ch, nil, warningStyle)
+				}
 			}
 		}
 	}

@@ -253,6 +253,72 @@ func (d *Dungeon) IsWalkable(x, y int) bool {
 	return d.Tiles[y][x] != TileWall
 }
 
+// findCentralRoomCenter finds the center of the room closest to the dungeon center
+func findCentralRoomCenter(d *Dungeon) (int, int) {
+	if len(d.Rooms) == 0 {
+		return -1, -1
+	}
+
+	dungeonCenterX := d.Width / 2
+	dungeonCenterY := d.Height / 2
+	bestRoom := d.Rooms[0]
+	bestDist := 1 << 30 // Large number
+
+	for _, room := range d.Rooms {
+		roomCenterX, roomCenterY := room.Center()
+		dx := roomCenterX - dungeonCenterX
+		dy := roomCenterY - dungeonCenterY
+		dist := dx*dx + dy*dy
+		if dist < bestDist {
+			bestDist = dist
+			bestRoom = room
+		}
+	}
+
+	return bestRoom.Center()
+}
+
+// findNearestFloorTile finds the nearest floor tile to the given position using BFS
+func findNearestFloorTile(d *Dungeon, startX, startY int) (int, int) {
+	if startX >= 0 && startX < d.Width && startY >= 0 && startY < d.Height {
+		if d.Tiles[startY][startX] == TileFloor {
+			return startX, startY
+		}
+	}
+
+	visited := make([][]bool, d.Height)
+	for i := range visited {
+		visited[i] = make([]bool, d.Width)
+	}
+
+	type point struct{ x, y int }
+	queue := []point{{startX, startY}}
+	dirs := []point{{0, 1}, {0, -1}, {1, 0}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
+
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+
+		if p.x < 0 || p.x >= d.Width || p.y < 0 || p.y >= d.Height {
+			continue
+		}
+		if visited[p.y][p.x] {
+			continue
+		}
+		visited[p.y][p.x] = true
+
+		if d.Tiles[p.y][p.x] == TileFloor {
+			return p.x, p.y
+		}
+
+		for _, dir := range dirs {
+			queue = append(queue, point{p.x + dir.x, p.y + dir.y})
+		}
+	}
+
+	return -1, -1
+}
+
 func (d *Dungeon) PlaceDoor(rng *rand.Rand) (int, int) {
 	// Place door in the last room
 	if len(d.Rooms) == 0 {
