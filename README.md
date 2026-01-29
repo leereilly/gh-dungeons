@@ -118,6 +118,16 @@ Dungeons are procedurally generated using **Binary Space Partitioning (BSP) tree
 
 Because the RNG is seeded from your repo + commit + file hashes, the overall layout is reproducible for a given snapshot of your repository.
 
+## Documentation
+
+For technical documentation aimed at modders, contributors, and those who want to understand or extend the game, see the **[`docs/`](./docs/)** directory:
+
+- **[Architecture](./docs/architecture.md)** — System overview, entry points, build commands
+- **[Dungeon Generation](./docs/dungeon-generation.md)** — BSP algorithm explained with ASCII diagrams
+- **[Entities](./docs/entities.md)** — Complete reference for player, enemies, items
+- **[Seeding](./docs/seeding.md)** — Deterministic RNG and reproducibility
+- **[Modding Guide](./docs/modding.md)** — Step-by-step guides for adding content
+
 ## License
 
 MIT
