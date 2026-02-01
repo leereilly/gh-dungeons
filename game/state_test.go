@@ -498,3 +498,116 @@ func TestMessageStyleClearing(t *testing.T) {
 	}
 }
 
+func TestEnemyDamageByMergeConflictFire(t *testing.T) {
+	// Create a dungeon with basic walkable floor
+	dungeon := &Dungeon{
+		Width:  20,
+		Height: 20,
+		Tiles:  make([][]Tile, 20),
+	}
+	// Make all tiles walkable
+	for y := range dungeon.Tiles {
+		dungeon.Tiles[y] = make([]Tile, 20)
+		for x := range dungeon.Tiles[y] {
+			dungeon.Tiles[y][x] = TileFloor
+		}
+	}
+
+	// Create a game state with merge conflict triggered
+	gs := &GameState{
+		Level:                  1,
+		MaxLevel:               5,
+		RNG:                    rand.New(rand.NewSource(42)),
+		Dungeon:                dungeon,
+		MergeConflictX:         10,
+		MergeConflictY:         10,
+		MergeConflictTriggered: true,
+		MergeConflictSpread:    [][2]int{{11, 10}, {9, 10}}, // Two spread tiles
+	}
+
+	// Create player far away from merge conflict
+	gs.Player = NewPlayer(5, 5)
+
+	// Create a bug (1 HP) in the merge conflict fire area
+	bugInFire := NewBug(10, 10) // At center of merge conflict
+	initialHP := bugInFire.HP
+
+	// Create a scope creep (3 HP) in the spread area
+	scopeCreepInFire := NewScopeCreep(11, 10) // At spread tile
+	scopeCreepInitialHP := scopeCreepInFire.HP
+
+	// Create a bug outside the fire area
+	bugOutside := NewBug(15, 15)
+	bugOutsideInitialHP := bugOutside.HP
+
+	gs.Enemies = []*Entity{bugInFire, scopeCreepInFire, bugOutside}
+
+	// Move enemies (this should apply fire damage)
+	gs.moveEnemies()
+
+	// Bug in fire should take 1 damage and die (1 HP - 1 damage = 0)
+	if bugInFire.HP != initialHP-1 {
+		t.Errorf("Bug in fire should take 1 damage. HP: %d, expected: %d", bugInFire.HP, initialHP-1)
+	}
+	if bugInFire.IsAlive() {
+		t.Error("Bug in fire should be dead after taking damage")
+	}
+
+	// Scope creep in fire should take 1 damage (3 HP - 1 damage = 2)
+	if scopeCreepInFire.HP != scopeCreepInitialHP-1 {
+		t.Errorf("Scope creep in fire should take 1 damage. HP: %d, expected: %d", scopeCreepInFire.HP, scopeCreepInitialHP-1)
+	}
+	if !scopeCreepInFire.IsAlive() {
+		t.Error("Scope creep should still be alive with 2 HP remaining")
+	}
+
+	// Bug outside should take no damage
+	if bugOutside.HP != bugOutsideInitialHP {
+		t.Errorf("Bug outside fire should take no damage. HP: %d, expected: %d", bugOutside.HP, bugOutsideInitialHP)
+	}
+}
+
+func TestEnemyNotDamagedWhenMergeConflictNotTriggered(t *testing.T) {
+	// Create a dungeon with basic walkable floor
+	dungeon := &Dungeon{
+		Width:  20,
+		Height: 20,
+		Tiles:  make([][]Tile, 20),
+	}
+	// Make all tiles walkable
+	for y := range dungeon.Tiles {
+		dungeon.Tiles[y] = make([]Tile, 20)
+		for x := range dungeon.Tiles[y] {
+			dungeon.Tiles[y][x] = TileFloor
+		}
+	}
+
+	// Create a game state WITHOUT merge conflict triggered
+	gs := &GameState{
+		Level:                  1,
+		MaxLevel:               5,
+		RNG:                    rand.New(rand.NewSource(42)),
+		Dungeon:                dungeon,
+		MergeConflictX:         10,
+		MergeConflictY:         10,
+		MergeConflictTriggered: false, // Not triggered
+	}
+
+	// Create player far away
+	gs.Player = NewPlayer(5, 5)
+
+	// Create an enemy at the merge conflict position
+	enemy := NewBug(10, 10)
+	initialHP := enemy.HP
+
+	gs.Enemies = []*Entity{enemy}
+
+	// Move enemies (this should NOT apply fire damage)
+	gs.moveEnemies()
+
+	// Enemy should take no damage
+	if enemy.HP != initialHP {
+		t.Errorf("Enemy should not take damage when merge conflict not triggered. HP: %d, expected: %d", enemy.HP, initialHP)
+	}
+}
+

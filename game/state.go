@@ -278,21 +278,26 @@ func (gs *GameState) distanceToMergeConflict() int {
 	return dy
 }
 
-// isPlayerInMergeConflictArea checks if the player is within the merge conflict's visual area
-func (gs *GameState) isPlayerInMergeConflictArea() bool {
+// isInMergeConflictArea checks if a position is within the merge conflict's fire area
+func (gs *GameState) isInMergeConflictArea(x, y int) bool {
 	// Check core 5x3 area
-	dx := gs.Player.X - gs.MergeConflictX
-	dy := gs.Player.Y - gs.MergeConflictY
+	dx := x - gs.MergeConflictX
+	dy := y - gs.MergeConflictY
 	if dx >= -2 && dx <= 2 && dy >= -1 && dy <= 1 {
 		return true
 	}
 	// Check spread tiles
 	for _, tile := range gs.MergeConflictSpread {
-		if gs.Player.X == tile[0] && gs.Player.Y == tile[1] {
+		if x == tile[0] && y == tile[1] {
 			return true
 		}
 	}
 	return false
+}
+
+// isPlayerInMergeConflictArea checks if the player is within the merge conflict's visual area
+func (gs *GameState) isPlayerInMergeConflictArea() bool {
+	return gs.isInMergeConflictArea(gs.Player.X, gs.Player.Y)
 }
 
 func (gs *GameState) checkMergeConflict() {
@@ -418,6 +423,11 @@ func (gs *GameState) moveEnemies() {
 			enemy.X += dx
 		} else if dy != 0 && gs.canEnemyMoveTo(enemy.X, enemy.Y+dy, enemy) {
 			enemy.Y += dy
+		}
+
+		// Check if enemy is in merge conflict fire area and apply damage
+		if gs.MergeConflictTriggered && gs.isInMergeConflictArea(enemy.X, enemy.Y) {
+			enemy.TakeDamage(1)
 		}
 	}
 }
