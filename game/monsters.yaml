@@ -1,0 +1,42 @@
+# Monster definitions for gh-dungeons
+# Add new monsters by copying an existing entry and modifying the values
+
+monsters:
+  # Classic slow zombie - moves in straight lines only, very slow
+  - name: "Zombie"
+    description: "A shambling corpse that moves slowly in straight lines"
+    token: "z"
+    color: "green"
+    hp: 4
+    strength: 2
+    speed: 0.5              # Moves every other turn (1 = normal, 0.5 = half speed)
+    movement: "straight"    # straight, diagonal, any, stationary
+    attack_range: 1         # 1 = melee, 2+ = ranged
+    experience_value: 15
+    abilities: []           # Optional: poison, freeze, etc.
+
+  # Bug - fast and weak, classic enemy
+  - name: "Bug"
+    description: "A nasty little software bug"
+    token: "b"
+    color: "red"
+    hp: 1
+    strength: 1
+    speed: 1.0
+    movement: "any"
+    attack_range: 1
+    experience_value: 5
+    abilities: []
+
+  # Scope Creep - tougher enemy
+  - name: "Scope Creep"
+    description: "An insidious feature that keeps growing"
+    token: "s"
+    color: "yellow"
+    hp: 3
+    strength: 2
+    speed: 1.0
+    movement: "any"
+    attack_range: 1
+    experience_value: 10
+    abilities: []

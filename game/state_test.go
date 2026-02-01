@@ -424,7 +424,7 @@ func TestEnemyDamageMessage(t *testing.T) {
 	gs.Enemies = []*Entity{enemy}
 	gs.enemyAttacks()
 
-	expectedMsg := "A bug attacked - 1 HP damage"
+	expectedMsg := "A Bug attacked - 1 HP damage"
 	if gs.Message != expectedMsg {
 		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
 	}
@@ -446,7 +446,7 @@ func TestEnemyDamageMessage(t *testing.T) {
 	gs2.Enemies = []*Entity{scopeCreep}
 	gs2.enemyAttacks()
 
-	expectedMsg2 := "A scope creep attacked - 2 HP damage"
+	expectedMsg2 := "A Scope Creep attacked - 2 HP damage"
 	if gs2.Message != expectedMsg2 {
 		t.Errorf("Expected message '%s', got '%s'", expectedMsg2, gs2.Message)
 	}
@@ -474,7 +474,7 @@ func TestMessageStyleClearing(t *testing.T) {
 	// Enemy attacks, setting red damage message
 	gs.enemyAttacks()
 
-	expectedMsg := "A bug attacked - 1 HP damage"
+	expectedMsg := "A Bug attacked - 1 HP damage"
 	if gs.Message != expectedMsg {
 		t.Errorf("Expected message '%s', got '%s'", expectedMsg, gs.Message)
 	}
