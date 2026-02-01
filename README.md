@@ -60,7 +60,7 @@ WASD, arrow keys, and Vim keys (because of course)
 
 Survive 5 dungeon levels by finding the hidden door `>` on each floor. Kill bugs and scope creeps, collect potions, and make it to the end!
 
-### Super, _super_ hard more with _permanent_ permadeath
+### Super, _super_ hard mode with _permanent_ permadeath
 
 If you're insane, you can set up a pre-commit hook that forces you to beat the game or lose your staged changes 😆
 
