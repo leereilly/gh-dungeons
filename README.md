@@ -82,6 +82,8 @@ chmod +x .git/hooks/pre-commit
 
 Now every commit requires you to survive the dungeon. Lose, and your changes are gone forever. 💀
 
+**WARNING:** Be very careful you understand what this is doing before attempting. You could lose work / sanity.
+
 ## Documentation
 
 For technical documentation aimed at modders, contributors, and those who want to understand or extend the game, see the **[`docs/`](./docs/)** directory:
