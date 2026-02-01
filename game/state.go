@@ -124,16 +124,14 @@ func (gs *GameState) generateLevel() {
 	gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
 	gs.OnMergeConflict = false
 	
-	// Spawn enemies
+	// Spawn enemies from YAML definitions
 	gs.Enemies = nil
 	numEnemies := 3 + gs.Level*2
+	registry := GetMonsterRegistry()
 	for i := 0; i < numEnemies; i++ {
 		x, y := gs.randomFloorTile()
-		if gs.RNG.Float32() > 0.4 {
-			gs.Enemies = append(gs.Enemies, NewBug(x, y))
-		} else {
-			gs.Enemies = append(gs.Enemies, NewScopeCreep(x, y))
-		}
+		def := registry.GetRandomMonster(gs.RNG)
+		gs.Enemies = append(gs.Enemies, NewMonsterFromDef(def, x, y))
 	}
 
 	// Spawn potions (scales with level)
@@ -200,11 +198,7 @@ func (gs *GameState) MovePlayer(dx, dy int) {
 			enemy.TakeDamage(gs.Player.Damage)
 			if !enemy.IsAlive() {
 				gs.EnemiesKilled++
-				if enemy.Type == EntityBug {
-					gs.SetMessage("You squashed a bug!")
-				} else {
-					gs.SetMessage("You eliminated a scope creep!")
-				}
+				gs.SetMessage(fmt.Sprintf("You defeated the %s!", enemy.Name))
 			} else {
 				gs.SetMessage("You attack!")
 			}
@@ -376,11 +370,7 @@ func (gs *GameState) playerAutoAttack() {
 			enemy.TakeDamage(gs.Player.Damage)
 			if !enemy.IsAlive() {
 				gs.EnemiesKilled++
-				if enemy.Type == EntityBug {
-					gs.SetMessage("You squashed a bug!")
-				} else {
-					gs.SetMessage("You eliminated a scope creep!")
-				}
+				gs.SetMessage(fmt.Sprintf("You defeated the %s!", enemy.Name))
 			}
 		}
 	}
@@ -392,12 +382,21 @@ func (gs *GameState) moveEnemies() {
 			continue
 		}
 
+		// Handle speed - slow enemies don't move every turn
+		if enemy.Speed < 1.0 {
+			enemy.TurnAccumulator += enemy.Speed
+			if enemy.TurnAccumulator < 1.0 {
+				continue // Skip this turn
+			}
+			enemy.TurnAccumulator -= 1.0
+		}
+
 		// Only move if player is visible (in line of sight)
 		if !gs.hasLineOfSight(enemy.X, enemy.Y, gs.Player.X, gs.Player.Y) {
 			continue
 		}
 
-		// Simple chase AI - move toward player
+		// Calculate desired direction
 		dx, dy := 0, 0
 		if enemy.X < gs.Player.X {
 			dx = 1
@@ -410,14 +409,38 @@ func (gs *GameState) moveEnemies() {
 			dy = -1
 		}
 
-		// Try to move (prefer diagonal, then cardinal)
+		// Apply movement restrictions based on movement type
+		switch enemy.Movement {
+		case MovementStationary:
+			continue // Can't move
+		case MovementStraight:
+			// Only cardinal directions - pick the axis with greater distance
+			if abs(gs.Player.X-enemy.X) >= abs(gs.Player.Y-enemy.Y) {
+				dy = 0 // Move horizontally
+			} else {
+				dx = 0 // Move vertically
+			}
+		case MovementDiagonal:
+			// Must move diagonally - if on same axis, can't move
+			if dx == 0 || dy == 0 {
+				continue
+			}
+		// MovementAny - no restrictions
+		}
+
+		// Try to move (prefer calculated direction, then fallbacks)
 		newX, newY := enemy.X+dx, enemy.Y+dy
 		if gs.canEnemyMoveTo(newX, newY, enemy) {
 			enemy.X, enemy.Y = newX, newY
 		} else if dx != 0 && gs.canEnemyMoveTo(enemy.X+dx, enemy.Y, enemy) {
-			enemy.X += dx
+			// Only allow cardinal fallback if movement type permits
+			if enemy.Movement != MovementDiagonal {
+				enemy.X += dx
+			}
 		} else if dy != 0 && gs.canEnemyMoveTo(enemy.X, enemy.Y+dy, enemy) {
-			enemy.Y += dy
+			if enemy.Movement != MovementDiagonal {
+				enemy.Y += dy
+			}
 		}
 	}
 }
@@ -444,21 +467,25 @@ func (gs *GameState) enemyAttacks() {
 	}
 
 	for _, enemy := range gs.Enemies {
-		if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
+		if !enemy.IsAlive() {
+			continue
+		}
+
+		// Check attack range
+		dist := enemy.DistanceTo(gs.Player)
+		attackRange := enemy.AttackRange
+		if attackRange <= 0 {
+			attackRange = 1 // Default to melee
+		}
+
+		if dist <= attackRange {
 			gs.Player.TakeDamage(enemy.Damage)
-			// Format damage message with monster type and damage in red
-			if enemy.Type == EntityBug {
-				gs.Message = fmt.Sprintf("A bug attacked - %d HP damage", enemy.Damage)
-				if !gs.Player.IsAlive() {
-					gs.KilledBy = "bug"
-				}
-			} else {
-				gs.Message = fmt.Sprintf("A scope creep attacked - %d HP damage", enemy.Damage)
-				if !gs.Player.IsAlive() {
-					gs.KilledBy = "scope_creep"
-				}
-			}
+			// Format damage message with monster name
+			gs.Message = fmt.Sprintf("A %s attacked - %d HP damage", enemy.Name, enemy.Damage)
 			gs.MessageStyle = tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack).Bold(true)
+			if !gs.Player.IsAlive() {
+				gs.KilledBy = enemy.Name
+			}
 		}
 	}
 }
