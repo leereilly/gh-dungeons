@@ -60,6 +60,28 @@ WASD, arrow keys, and Vim keys (because of course)
 
 Survive 5 dungeon levels by finding the hidden door `>` on each floor. Kill bugs and scope creeps, collect potions, and make it to the end!
 
+### Super, _super_ hard more with _permanent_ permadeath
+
+If you're insane, you can set up a pre-commit hook that forces you to beat the game or lose your staged changes 😆
+
+```bash
+# Create the pre-commit hook
+cat > .git/hooks/pre-commit << 'EOF'
+#!/bin/bash
+gh dungeons
+if [ $? -ne 0 ]; then
+    echo "You died! Your changes have been stashed into oblivion..."
+    git stash && git stash drop stash@{0}
+    exit 1
+fi
+EOF
+
+# Make it executable
+chmod +x .git/hooks/pre-commit
+```
+
+Now every commit requires you to survive the dungeon. Lose, and your changes are gone forever. 💀
+
 ## Documentation
 
 For technical documentation aimed at modders, contributors, and those who want to understand or extend the game, see the **[`docs/`](./docs/)** directory:
