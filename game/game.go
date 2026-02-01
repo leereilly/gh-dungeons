@@ -85,6 +85,43 @@ func (g *Game) Close() {
 	if g.screen != nil {
 		g.screen.Fini()
 	}
+	playExitAnimation()
+}
+
+// playExitAnimation shows the @ character walking off and fading away
+func playExitAnimation() {
+	// ANSI escape codes for cursor control and 256-color mode
+	// Move cursor, print @, then gradually fade from bright to invisible
+	// Using grayscale colors: 255 (white) -> 232 (near black)
+
+	// Hide cursor during animation
+	fmt.Print("\033[?25l")
+
+	// Grayscale fading: start at white (231), fade through grays to invisible
+	// We'll use 256-color mode with grayscale ramp (232-255, where 255 is white, 232 is near black)
+	fadeColors := []int{231, 255, 254, 252, 250, 248, 246, 244, 242, 240, 238, 236, 234, 232}
+
+	for i := 0; i < 20; i++ {
+		// Calculate color based on position (fade as we move right)
+		colorIdx := i * len(fadeColors) / 20
+		if colorIdx >= len(fadeColors) {
+			colorIdx = len(fadeColors) - 1
+		}
+		color := fadeColors[colorIdx]
+
+		// Clear line, move to position, set color, print @
+		fmt.Printf("\r\033[K") // Clear line
+		for j := 0; j < i; j++ {
+			fmt.Print(" ")
+		}
+		fmt.Printf("\033[38;5;%dm@\033[0m", color)
+
+		time.Sleep(80 * time.Millisecond)
+	}
+
+	// Clear the line and show cursor again
+	fmt.Print("\r\033[K")
+	fmt.Print("\033[?25h")
 }
 
 func (g *Game) Run() error {
