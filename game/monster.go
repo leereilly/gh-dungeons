@@ -19,6 +19,7 @@ const (
 	MovementDiagonal   MovementType = "diagonal"   // Only diagonal directions
 	MovementAny        MovementType = "any"        // Any direction
 	MovementStationary MovementType = "stationary" // Cannot move
+	MovementHorizontal MovementType = "horizontal" // Only left or right
 )
 
 // MonsterDef represents a monster definition from YAML
@@ -34,6 +35,7 @@ type MonsterDef struct {
 	AttackRange     int          `yaml:"attack_range"`
 	ExperienceValue int          `yaml:"experience_value"`
 	Abilities       []string     `yaml:"abilities"`
+	Unique          bool         `yaml:"unique"` // If true, exactly one spawns per level
 }
 
 // MonsterConfig holds all monster definitions
@@ -43,8 +45,9 @@ type MonsterConfig struct {
 
 // MonsterRegistry holds loaded monster definitions
 type MonsterRegistry struct {
-	monsters map[string]MonsterDef
-	names    []string // for random selection
+	monsters     map[string]MonsterDef
+	names        []string // for random selection (non-unique only)
+	uniqueNames  []string // unique monsters (one per level)
 }
 
 var globalRegistry *MonsterRegistry
@@ -69,7 +72,11 @@ func loadMonsterRegistry() *MonsterRegistry {
 	}
 	for _, m := range config.Monsters {
 		registry.monsters[m.Name] = m
-		registry.names = append(registry.names, m.Name)
+		if m.Unique {
+			registry.uniqueNames = append(registry.uniqueNames, m.Name)
+		} else {
+			registry.names = append(registry.names, m.Name)
+		}
 	}
 	return registry
 }
@@ -98,8 +105,20 @@ func (r *MonsterRegistry) GetRandomMonster(rng *rand.Rand) MonsterDef {
 
 // GetAllMonsters returns all monster definitions
 func (r *MonsterRegistry) GetAllMonsters() []MonsterDef {
-	result := make([]MonsterDef, 0, len(r.names))
+	result := make([]MonsterDef, 0, len(r.names)+len(r.uniqueNames))
 	for _, name := range r.names {
+		result = append(result, r.monsters[name])
+	}
+	for _, name := range r.uniqueNames {
+		result = append(result, r.monsters[name])
+	}
+	return result
+}
+
+// GetUniqueMonsters returns all monster definitions marked as unique (one per level)
+func (r *MonsterRegistry) GetUniqueMonsters() []MonsterDef {
+	result := make([]MonsterDef, 0, len(r.uniqueNames))
+	for _, name := range r.uniqueNames {
 		result = append(result, r.monsters[name])
 	}
 	return result

@@ -2,7 +2,10 @@ module github.com/leereilly/gh-dungeons
 
 go 1.25.5
 
-require github.com/gdamore/tcell/v2 v2.13.7
+require (
+	github.com/gdamore/tcell/v2 v2.13.7
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/gdamore/encoding v1.0.1 // indirect
@@ -11,5 +14,4 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

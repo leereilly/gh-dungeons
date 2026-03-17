@@ -134,6 +134,12 @@ func (gs *GameState) generateLevel() {
 		gs.Enemies = append(gs.Enemies, NewMonsterFromDef(def, x, y))
 	}
 
+	// Spawn one of each unique monster per level
+	for _, def := range registry.GetUniqueMonsters() {
+		x, y := gs.randomFloorTile()
+		gs.Enemies = append(gs.Enemies, NewMonsterFromDef(def, x, y))
+	}
+
 	// Spawn potions (scales with level)
 	gs.Potions = nil
 	numPotions := 2 + gs.Level + gs.RNG.Intn(2)
@@ -430,6 +436,12 @@ func (gs *GameState) moveEnemies() {
 			if dx == 0 || dy == 0 {
 				continue
 			}
+		case MovementHorizontal:
+			// Only horizontal movement - left or right, never up or down
+			dy = 0
+			if dx == 0 {
+				continue // Same column as player, no horizontal direction to move
+			}
 		// MovementAny - no restrictions
 		}
 
@@ -443,7 +455,7 @@ func (gs *GameState) moveEnemies() {
 				enemy.X += dx
 			}
 		} else if dy != 0 && gs.canEnemyMoveTo(enemy.X, enemy.Y+dy, enemy) {
-			if enemy.Movement != MovementDiagonal {
+			if enemy.Movement != MovementDiagonal && enemy.Movement != MovementHorizontal {
 				enemy.Y += dy
 			}
 		}
