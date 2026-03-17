@@ -7,7 +7,7 @@ monsters:
     description: "A shambling corpse that moves slowly in straight lines"
     token: "z"
     color: "green"
-    hp: 3
+    hp: 4
     strength: 2
     speed: 0.5              # Moves every other turn (1 = normal, 0.5 = half speed)
     movement: "straight"    # straight, diagonal, any, stationary
