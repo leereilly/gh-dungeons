@@ -40,3 +40,17 @@ monsters:
     attack_range: 1
     experience_value: 10
     abilities: []
+
+  # Hermit Crab - unique enemy, appears once per level, moves only left or right
+  - name: "Hermit Crab"
+    description: "A stubborn crustacean that only moves sideways"
+    token: "H"
+    color: "red"
+    hp: 2
+    strength: 2
+    speed: 1.0
+    movement: "horizontal"
+    attack_range: 1
+    experience_value: 20
+    abilities: []
+    unique: true

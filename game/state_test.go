@@ -611,3 +611,158 @@ func TestEnemyNotDamagedWhenMergeConflictNotTriggered(t *testing.T) {
 	}
 }
 
+func newHermitCrab(x, y int) *Entity {
+	return &Entity{
+		Type:     EntityMonster,
+		X:        x,
+		Y:        y,
+		HP:       2,
+		MaxHP:    2,
+		Damage:   2,
+		Symbol:   'H',
+		Name:     "Hermit Crab",
+		Color:    0, // tcell.ColorRed, not needed for movement tests
+		Speed:    1.0,
+		Movement: MovementHorizontal,
+	}
+}
+
+func newTestDungeon(width, height int) *Dungeon {
+	dungeon := &Dungeon{
+		Width:  width,
+		Height: height,
+		Tiles:  make([][]Tile, height),
+	}
+	for y := range dungeon.Tiles {
+		dungeon.Tiles[y] = make([]Tile, width)
+		for x := range dungeon.Tiles[y] {
+			dungeon.Tiles[y][x] = TileFloor
+		}
+	}
+	return dungeon
+}
+
+func TestHermitCrabMovesHorizontallyTowardPlayer(t *testing.T) {
+	gs := &GameState{
+		Level:    1,
+		MaxLevel: 5,
+		RNG:      rand.New(rand.NewSource(42)),
+		Dungeon:  newTestDungeon(20, 20),
+	}
+
+	// Player is to the right of the crab
+	gs.Player = NewPlayer(15, 5)
+	crab := newHermitCrab(5, 5) // same row
+	gs.Enemies = []*Entity{crab}
+
+	initialY := crab.Y
+	gs.moveEnemies()
+
+	// Crab should have moved right (toward player)
+	if crab.X <= 5 {
+		t.Errorf("Hermit Crab should move right toward player, but X is still %d", crab.X)
+	}
+	// Crab must not have moved vertically
+	if crab.Y != initialY {
+		t.Errorf("Hermit Crab should not move vertically, Y changed from %d to %d", initialY, crab.Y)
+	}
+}
+
+func TestHermitCrabMovesHorizontallyWhenPlayerAbove(t *testing.T) {
+	gs := &GameState{
+		Level:    1,
+		MaxLevel: 5,
+		RNG:      rand.New(rand.NewSource(42)),
+		Dungeon:  newTestDungeon(20, 20),
+	}
+
+	// Player is above and to the right of the crab
+	gs.Player = NewPlayer(12, 2)
+	crab := newHermitCrab(5, 10)
+	gs.Enemies = []*Entity{crab}
+
+	initialY := crab.Y
+	gs.moveEnemies()
+
+	// Crab should have moved right (horizontal only)
+	if crab.X <= 5 {
+		t.Errorf("Hermit Crab should move right toward player horizontally, but X is still %d", crab.X)
+	}
+	// Crab must not have moved vertically
+	if crab.Y != initialY {
+		t.Errorf("Hermit Crab should not move vertically even when player is above, Y changed from %d to %d", initialY, crab.Y)
+	}
+}
+
+func TestHermitCrabDoesNotMoveWhenSameColumn(t *testing.T) {
+	gs := &GameState{
+		Level:    1,
+		MaxLevel: 5,
+		RNG:      rand.New(rand.NewSource(42)),
+		Dungeon:  newTestDungeon(20, 20),
+	}
+
+	// Player is directly above the crab (same X column)
+	gs.Player = NewPlayer(5, 2)
+	crab := newHermitCrab(5, 10)
+	gs.Enemies = []*Entity{crab}
+
+	initialX := crab.X
+	initialY := crab.Y
+	gs.moveEnemies()
+
+	// Crab should not have moved at all (no horizontal direction available)
+	if crab.X != initialX {
+		t.Errorf("Hermit Crab should not move when player is in same column, X changed from %d to %d", initialX, crab.X)
+	}
+	if crab.Y != initialY {
+		t.Errorf("Hermit Crab should not move vertically, Y changed from %d to %d", initialY, crab.Y)
+	}
+}
+
+func TestHermitCrabSpawnedOncePerLevel(t *testing.T) {
+	codeFiles := []CodeFile{
+		{
+			Path:  "test.go",
+			Lines: []string{"package main", "func main() {", "}"},
+		},
+	}
+
+	for _, level := range []int{1, 3, 5} {
+		gs := NewGameState(codeFiles, 42, 80, 40)
+		gs.Level = level
+		gs.generateLevel()
+
+		hermitCrabCount := 0
+		for _, e := range gs.Enemies {
+			if e.Name == "Hermit Crab" {
+				hermitCrabCount++
+			}
+		}
+
+		if hermitCrabCount != 1 {
+			t.Errorf("Expected exactly 1 Hermit Crab on level %d, got %d", level, hermitCrabCount)
+		}
+	}
+}
+
+func TestHermitCrabIsRedH(t *testing.T) {
+	registry := GetMonsterRegistry()
+	def, ok := registry.GetMonster("Hermit Crab")
+	if !ok {
+		t.Fatal("Hermit Crab should be defined in the monster registry")
+	}
+	if def.Token != "H" {
+		t.Errorf("Hermit Crab token should be 'H', got '%s'", def.Token)
+	}
+	if def.Color != "red" {
+		t.Errorf("Hermit Crab color should be 'red', got '%s'", def.Color)
+	}
+	if def.Movement != MovementHorizontal {
+		t.Errorf("Hermit Crab movement should be 'horizontal', got '%s'", def.Movement)
+	}
+	if !def.Unique {
+		t.Error("Hermit Crab should be marked as unique")
+	}
+}
+
