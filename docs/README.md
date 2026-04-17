@@ -1,114 +1,68 @@
 # Documentation Index
 
-Welcome to the gh-dungeons documentation! This directory contains technical documentation for modders, contributors, and anyone who wants to understand how the game works.
+Welcome to the `gh-dungeons` technical docs. If the [top-level README](../README.md) is the tavern-side pitch, this directory is the wizard's workshop: annotated spellbooks, receipts for the reagents, and maps of the crypts beneath the code.
+
+These docs describe what the code **actually does** today — not what an older draft thought it would do. Citations (`file.go:Function`) are sprinkled throughout so you can grep from here straight into the source.
 
 ---
 
 ## Documentation Files
 
 ### [architecture.md](./architecture.md)
-**For:** Contributors, developers, curious players  
-**Topics:**
-- Repository structure and entry points
-- Core systems overview (GameState, rendering, input)
-- Build and test commands
-- Code style and conventions
+A system-wide tour: entry points (`main.go` → `game.New` → `g.Run`), the render loop, turn pipeline, the `GameState` god-object, the embedded YAML monster registry, the two coexisting merge-conflict systems, the farewell `@` fade animation, and the actual dependency tree (`tcell/v2`, `yaml.v3`).
 
-**Start here** if you want a high-level tour of the codebase.
-
----
+**Start here** if you want to know how a keystroke becomes a dead `z`.
 
 ### [dungeon-generation.md](./dungeon-generation.md)
-**For:** Modders, algorithm enthusiasts, map designers  
-**Topics:**
-- Binary Space Partitioning (BSP) algorithm explained
-- Room creation and sizing
-- L-shaped corridor carving
-- ASCII diagrams showing the generation process
-- How to modify room sizes and BSP depth
-
-**Start here** if you want to understand or modify how dungeons are built.
-
----
+Binary Space Partitioning in painful detail: the 1.25 aspect-ratio heuristic, room placement, post-order L-shaped corridor carving, `findCentralRoomCenter` (for merge-marker placement), `findNearestFloorTile`'s BFS, and the `y*2 + x/40` code-text background trick.
 
 ### [entities.md](./entities.md)
-**For:** Modders, game designers, balance tweakers  
-**Topics:**
-- Complete entity reference (player, enemies, items)
-- Combat system and auto-attack mechanics
-- Enemy AI and line-of-sight logic
-- Spawn formulas and rates
-- Konami code implementation
-- Merge conflict trap details
+Everything that occupies a tile. The `Entity` struct (and all its YAML-fed fields), the player, every monster currently shipped (Bug, Scope Creep, Zombie, Hermit Crab), movement types, speed/turn-accumulator math, attack range, the `Invulnerable` / Konami path, and the subtle `KilledBy` / `getDeathMessage` case-matching bug.
 
-**Start here** if you want to add new enemies, change stats, or understand combat.
+### [monsters.md](./monsters.md)
+Reference for `game/monsters.yaml`: every field, every legal value, how `unique: true` works, and how to add a new monster without writing a line of Go.
 
----
+### [merge-conflict.md](./merge-conflict.md)
+The single most confusing subsystem in the codebase, documented honestly: the random-floor-tile fire trap *and* the `--merge`-mode central-room marker are **two different systems** sharing prefixes. Also: the animated pattern state machine and the `findMergeConflict` repo scan.
 
 ### [seeding.md](./seeding.md)
-**For:** Speedrunners, testers, reproducibility nerds  
-**Topics:**
-- Deterministic RNG seed computation
-- What goes into the seed (repo URL, commit SHA, file hashes)
-- Why forks get different dungeons
-- Reproducibility checklist
-- Code file scanning logic
-
-**Start here** if you want to understand why your dungeon is unique or how to get the same dungeon twice.
-
----
+How a 64-bit seed is brewed from the remote origin URL, HEAD SHA, and the SHA256s of the top 5 longest code files. Includes the reproducibility checklist and a note on Go's `math/rand` determinism.
 
 ### [modding.md](./modding.md)
-**For:** Modders, hackers, tinkerers  
-**Topics:**
-- Step-by-step guide to adding new enemies
-- Adding new items with custom effects
-- Changing spawn rates and dungeon parameters
-- Adding status effects (poison example)
-- Adding new traps
-- Testing your mods
-
-**Start here** if you want to create content for the game.
+From "add a monster in 30 seconds of YAML" all the way to "invent a new tile type and status effect." YAML-first, Go-second, with pitfalls about determinism and the legacy entity types.
 
 ---
 
 ## Quick Start by Goal
 
-**"I want to understand the code"**  
-→ Start with [architecture.md](./architecture.md)
+| I want to...                                   | Go to                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| Understand the code at a glance                | [architecture.md](./architecture.md)                               |
+| Add a new monster                              | [modding.md](./modding.md) → "Add a monster (YAML)"                |
+| Understand how dungeons are shaped             | [dungeon-generation.md](./dungeon-generation.md)                   |
+| Tune spawn rates or difficulty                 | [entities.md](./entities.md) → "Spawn formulas"                    |
+| Understand why my dungeon is *this* dungeon    | [seeding.md](./seeding.md)                                         |
+| Figure out what `--merge` actually does        | [merge-conflict.md](./merge-conflict.md)                           |
+| Learn the Konami code                          | [entities.md](./entities.md) → "Konami code"                       |
 
-**"I want to add a new enemy type"**  
-→ Jump to [modding.md](./modding.md) → "Adding a New Enemy"
+---
 
-**"I want to change how dungeons look"**  
-→ Read [dungeon-generation.md](./dungeon-generation.md) → "Modifying Dungeon Generation"
+## Conventions used in these docs
 
-**"I want the same dungeon on two machines"**  
-→ Check [seeding.md](./seeding.md) → "Reproducibility Checklist"
-
-**"I want to know what the Konami code does"**  
-→ See [entities.md](./entities.md) → "Konami Code"
+- **Citations:** `path/file.go:Thing` means "look at `Thing` (function/type/const) in that file."
+- **ASCII diagrams** are preferred over images because this is a roguelike and we have standards.
+- **Honest notes** — where the implementation has a quirk, dead code, or latent bug, we call it out rather than paper over it.
 
 ---
 
 ## Contributing Documentation
 
-Found an error? Want to expand a section? PRs welcome!
+Found drift between these docs and the code? That's a bug. Open a PR. Guidelines:
 
-**Guidelines:**
-- Keep the tone witty but precise (see existing docs for examples)
-- Always cite code locations (file names and function names)
-- Use ASCII diagrams for spatial/procedural concepts
-- Don't invent features—document what's actually in the code
-- Test your examples before submitting
-
----
-
-## Player-Facing Documentation
-
-For gameplay instructions, controls, and general info, see the main [README.md](../README.md) in the root directory.
-
-This `docs/` directory is specifically for **technical documentation** aimed at people who want to read or modify the code.
+- Cite code (file + function name) so the reader can verify.
+- Don't invent features. If you want the docs to describe a behavior, implement the behavior first.
+- Prefer ASCII diagrams for anything spatial.
+- Keep the tone witty but precise.
 
 ---
 

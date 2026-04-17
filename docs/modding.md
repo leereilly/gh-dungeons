@@ -1,248 +1,227 @@
 # Modding Guide
 
-How to extend gh-dungeons with new enemies, items, mechanics, and more.
+How to extend `gh-dungeons`. The codebase is small (~2k lines), the monster list is YAML, and Go test coverage is friendly to iteration. If you can read Go, you can mod this game.
 
----
+**Priority order for mods:**
 
-## Philosophy
-
-gh-dungeons is designed to be moddable. The codebase is small (~2000 lines), well-structured, and uses simple patterns. If you can read Go, you can mod this game.
-
-**Key principles:**
-- All game logic is in the `game/` package
-- Entities are data (stats + position), not classes
-- Dungeon generation is deterministic (controlled by RNG seed)
-- Rendering is separate from game state
+1. **YAML first.** Adding, tuning, or removing monsters should always be a YAML edit.
+2. **Stats and constants next.** Room sizes, spawn formulas, vision radius — one-line changes.
+3. **Go code last.** New tile types, status effects, new item categories, UI overhauls.
 
 ---
 
 ## Quick Reference
 
-| What to Mod | File to Edit | Function/Struct |
-|-------------|--------------|-----------------|
-| Add enemy type | `entity.go` | Create `NewFoo()` constructor |
-| Change spawn rates | `state.go` | `generateLevel()` |
-| Add item type | `entity.go` + `state.go` | New `EntityType` + pickup logic |
-| Change room sizes | `dungeon.go` | `MinRoomSize`, `MaxRoomSize` |
-| Add custom AI | `state.go` | `moveEnemies()` |
-| Change combat | `state.go` | `enemyAttacks()`, `playerAutoAttack()` |
-| Add status effects | `entity.go` + `state.go` | New fields on `Entity` |
+| What to change                | Where                                            |
+| ----------------------------- | ------------------------------------------------ |
+| Add a monster                 | `game/monsters.yaml`                             |
+| Adjust enemy counts per level | `game/state.go:generateLevel`                    |
+| Adjust potion counts          | `game/state.go:generateLevel`                    |
+| Change room sizes             | `game/dungeon.go` → `MinRoomSize`, `MaxRoomSize` |
+| Change BSP depth              | `game/dungeon.go:GenerateDungeon` → `root.Split(rng, 4)` |
+| Change vision radius          | `game/state.go` → `VisionRadius`                 |
+| Change player stats           | `game/entity.go:NewPlayer`                       |
+| Add a new item type           | `game/entity.go` + `game/state.go` (pickup) + `game/game.go` (render) |
+| Change combat damage model    | `game/entity.go:TakeDamage`                      |
+| Add a new tile type           | `game/dungeon.go` (constants) + `game/game.go:render` |
+| Add a status effect           | `game/entity.go` (fields) + `game/state.go` (apply/tick) |
+| Add a key binding             | `game/game.go:Run` (input switch)                |
 
 ---
 
-## Adding a New Enemy
+## Philosophy: Keep It Deterministic
 
-Let's add **Tech Debt** — a slow, tanky enemy that doesn't chase the player.
+The game's charm is that your repo produces *this* dungeon, every time. Most mod breakages come from accidentally nondeterministic code.
 
-### Step 1: Add the Entity Type
+**Do:**
+- Always use `gs.RNG` for randomness. Never `math/rand.Float32()` directly.
+- Append new RNG consumers at the **end** of `generateLevel`, not in the middle. Middle-insertions shift every subsequent random result for existing seeds.
+- Keep YAML entry order stable unless you actually want the random pool to shuffle.
 
-Edit `game/entity.go`:
+**Don't:**
+- Don't read wall-clock time into gameplay (`time.Now().UnixNano()` into RNG is a classic determinism killer). The exit fade animation uses real time — that's fine because it runs after the game ends.
+- Don't use goroutines for any game-state-affecting work. The event loop is single-threaded by design.
 
-```go
-const (
-    EntityPlayer EntityType = iota
-    EntityBug
-    EntityScopeCreep
-    EntityTechDebt  // Add this
-    EntityPotion
-)
+---
+
+## Mod 1: Add a Monster (YAML)
+
+This is the easiest kind of mod. Open `game/monsters.yaml` and append:
+
+```yaml
+  - name: "Tech Debt"
+    description: "Interest compounds. Pay it down before it pays you a visit."
+    token: "T"
+    color: "purple"       # NOTE: color is parsed but currently unused at render time
+    hp: 5
+    strength: 1
+    speed: 0.5            # moves every other turn
+    movement: "any"
+    attack_range: 1
+    experience_value: 25
+    abilities: []
 ```
 
-### Step 2: Create a Constructor
-
-Add to `game/entity.go`:
-
-```go
-func NewTechDebt(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityTechDebt,
-        X:      x,
-        Y:      y,
-        HP:     5,      // Tankier than scope creep
-        MaxHP:  5,
-        Damage: 1,      // Low damage
-        Symbol: 't',    // 't' for tech debt
-    }
-}
-```
-
-### Step 3: Add Spawn Logic
-
-Edit `game/state.go:generateLevel()`:
-
-Find the enemy spawning code and modify it:
-
-```go
-numEnemies := 3 + gs.Level*2
-for i := 0; i < numEnemies; i++ {
-    x, y := gs.randomFloorTile()
-    
-    roll := gs.RNG.Float32()
-    if roll > 0.7 {
-        gs.Enemies = append(gs.Enemies, NewBug(x, y))
-    } else if roll > 0.4 {
-        gs.Enemies = append(gs.Enemies, NewScopeCreep(x, y))
-    } else {
-        gs.Enemies = append(gs.Enemies, NewTechDebt(x, y))  // New!
-    }
-}
-```
-
-**New spawn rates:**
-- 30% Bugs
-- 30% Scope Creeps
-- 40% Tech Debt
-
-### Step 4: Add Death Message
-
-Edit `game/state.go:playerAutoAttack()` and `state.go:enemyAttacks()`:
-
-```go
-if !enemy.IsAlive() {
-    gs.EnemiesKilled++
-    if enemy.Type == EntityBug {
-        gs.SetMessage("You squashed a bug!")
-    } else if enemy.Type == EntityScopeCreep {
-        gs.SetMessage("You eliminated a scope creep!")
-    } else if enemy.Type == EntityTechDebt {
-        gs.SetMessage("You refactored the tech debt!")  // New!
-    }
-}
-```
-
-### Step 5: Add Custom AI (Optional)
-
-Tech Debt doesn't chase the player—it just wanders randomly.
-
-Edit `game/state.go:moveEnemies()`:
-
-```go
-for _, enemy := range gs.Enemies {
-    if !enemy.IsAlive() {
-        continue
-    }
-
-    // Tech Debt doesn't chase the player
-    if enemy.Type == EntityTechDebt {
-        // Random walk
-        dx := gs.RNG.Intn(3) - 1  // -1, 0, or 1
-        dy := gs.RNG.Intn(3) - 1
-        newX, newY := enemy.X+dx, enemy.Y+dy
-        if gs.canEnemyMoveTo(newX, newY, enemy) {
-            enemy.X, enemy.Y = newX, newY
-        }
-        continue
-    }
-
-    // Only move if player is visible (existing chase AI)
-    if !gs.hasLineOfSight(enemy.X, enemy.Y, gs.Player.X, gs.Player.Y) {
-        continue
-    }
-
-    // ... rest of chase AI
-}
-```
-
-### Step 6: Add Custom Death Message
-
-Edit `game/game.go:getDeathMessage()`:
-
-```go
-switch g.state.KilledBy {
-case "bug":
-    return "In GitHub Dungeons... bug squashes YOU"
-case "merge_conflict":
-    dayName := time.Now().Weekday().String()
-    return fmt.Sprintf("Death by merge conflict. Just a typical %s.", dayName)
-case "scope_creep":
-    return "Foiled by scope creep again!"
-case "tech_debt":  // New!
-    return "Crushed under the weight of tech debt."
-default:
-    return "The bugs and scope creeps won..."
-}
-```
-
-And set the killer in `state.go:enemyAttacks()`:
-
-```go
-if !gs.Player.IsAlive() {
-    if enemy.Type == EntityBug {
-        gs.KilledBy = "bug"
-    } else if enemy.Type == EntityScopeCreep {
-        gs.KilledBy = "scope_creep"
-    } else if enemy.Type == EntityTechDebt {
-        gs.KilledBy = "tech_debt"  // New!
-    }
-}
-```
-
-### Done!
-
-Rebuild and test:
+Rebuild:
 
 ```bash
 go build -o gh-dungeons
-./gh-dungeons
 ```
 
-You should now see `t` enemies wandering around that don't chase you.
+That's it. Tech Debt joins the random-spawn pool at uniform weight vs other non-unique monsters. See [monsters.md](./monsters.md) for the full schema.
+
+**To make it a boss-type that always appears once per level**, add:
+
+```yaml
+    unique: true
+```
+
+to the entry. Unique monsters skip the random pool and spawn one per level on top of the random spawns.
+
+### Common YAML gotchas
+
+- **You must rebuild.** `monsters.yaml` is embedded at compile time (`//go:embed`).
+- **Invalid YAML ⇒ empty registry.** The game falls back to a sentinel `Bug`. If spawns look uniform and broken, check YAML syntax.
+- **`movement` must be one of**: `any`, `straight`, `diagonal`, `horizontal`, `stationary`. Unknown values behave like `any` but without explicit fallbacks — don't rely on this.
+- **`color` is ignored at render time** today; every enemy draws red regardless. If you fix this, the right place is `game/game.go:render` where `enemyStyle` is defined.
+
+### Test your monster
+
+Add to `game/state_test.go`:
+
+```go
+func TestTechDebtIsPurpleAndSlow(t *testing.T) {
+    registry := GetMonsterRegistry()
+    def, ok := registry.GetMonster("Tech Debt")
+    if !ok { t.Fatal("Tech Debt not registered") }
+    if def.Speed != 0.5 { t.Errorf("expected speed 0.5, got %v", def.Speed) }
+    if def.Color != "purple" { t.Errorf("expected purple, got %s", def.Color) }
+}
+```
+
+Run:
+
+```bash
+go test ./game -count=1 -run TestTechDebt
+```
 
 ---
 
-## Adding a New Item
+## Mod 2: Tune Spawn Rates
 
-Let's add **Coffee** — restores 5 HP and grants +1 damage for the rest of the level.
-
-### Step 1: Add the Entity Type
-
-Edit `game/entity.go`:
+All spawn logic lives in `game/state.go:generateLevel`. Relevant lines:
 
 ```go
+numEnemies := 3 + gs.Level*2
+...
+numPotions := 2 + gs.Level + gs.RNG.Intn(2)
+```
+
+### Denser enemies, sparser potions
+
+```go
+numEnemies := 5 + gs.Level*3
+numPotions := 1 + gs.Level/2
+```
+
+### Weighted random monsters
+
+The stock code draws uniformly from `registry.names`. For weighted draws, extend `MonsterDef`:
+
+```yaml
+# game/monsters.yaml
+  - name: "Bug"
+    weight: 10
+    ...
+```
+
+```go
+// game/monster.go
+type MonsterDef struct {
+    ...
+    Weight int `yaml:"weight"`
+}
+
+// in GetRandomMonster:
+total := 0
+for _, name := range r.names { total += r.monsters[name].Weight }
+if total == 0 { /* fall back to uniform */ }
+pick := rng.Intn(total)
+for _, name := range r.names {
+    pick -= r.monsters[name].Weight
+    if pick < 0 { return r.monsters[name] }
+}
+```
+
+Remember to default missing weights to 1 so existing YAML still works.
+
+---
+
+## Mod 3: Change Room Sizes / Dungeon Shape
+
+```go
+// game/dungeon.go
 const (
-    EntityPlayer EntityType = iota
-    EntityBug
-    EntityScopeCreep
-    EntityPotion
-    EntityCoffee  // Add this
+    MinRoomSize = 8   // was 6
+    MaxRoomSize = 20  // was 15
 )
 ```
 
-### Step 2: Create a Constructor
+Bigger minimums mean fewer rooms per level (leaf regions refuse to split). On an 80×27 map, pushing `MinRoomSize` past ~9 often yields only 3–4 rooms.
 
-Add to `game/entity.go`:
+Increase BSP depth for more (but smaller) rooms:
 
 ```go
+// game/dungeon.go:GenerateDungeon
+root.Split(rng, 5)   // was 4
+```
+
+### Always-horizontal-first corridors
+
+```go
+// game/dungeon.go:connectRooms — replace the if/else
+d.carveHorizontalCorridor(x1, x2, y1)
+d.carveVerticalCorridor(y1, y2, x2)
+```
+
+Loses a touch of character but produces a more predictable map — useful for testing.
+
+---
+
+## Mod 4: Add a New Item — Coffee (+5 HP, +1 Damage for the Rest of the Run)
+
+### 4a. Constructor and type
+
+```go
+// game/entity.go
+const (
+    EntityPlayer     EntityType = iota
+    EntityMonster
+    EntityPotion
+    EntityBug
+    EntityScopeCreep
+    EntityCoffee     // NEW
+)
+
 func NewCoffee(x, y int) *Entity {
     return &Entity{
         Type:   EntityCoffee,
         X:      x,
         Y:      y,
-        Symbol: 'c',  // 'c' for coffee
+        Symbol: 'c',
     }
 }
 ```
 
-### Step 3: Add Coffee List to GameState
-
-Edit `game/state.go:GameState` struct:
+### 4b. Storage and spawning
 
 ```go
-type GameState struct {
-    Player    *Entity
-    Enemies   []*Entity
-    Potions   []*Entity
-    Coffee    []*Entity  // Add this
-    // ... rest of fields
-}
+// game/state.go — on GameState
+Coffee []*Entity
 ```
 
-### Step 4: Add Spawn Logic
-
-Edit `game/state.go:generateLevel()`:
-
 ```go
-// Spawn coffee (1-2 per level)
+// game/state.go:generateLevel — append at END to avoid shifting RNG for existing levels
 gs.Coffee = nil
 numCoffee := 1 + gs.RNG.Intn(2)
 for i := 0; i < numCoffee; i++ {
@@ -251,14 +230,14 @@ for i := 0; i < numCoffee; i++ {
 }
 ```
 
-### Step 5: Add Pickup Logic
+> ⚠️ **Determinism note**: Adding RNG consumption here shifts every subsequent level's layout. If you want to preserve the stock seed's layout, you have to accept that existing seeds now produce subtly different dungeons.
 
-Edit `game/state.go:MovePlayer()`, after the potion pickup code:
+### 4c. Pickup
 
 ```go
-// Check for coffee pickup
-for i, coffee := range gs.Coffee {
-    if coffee.X == newX && coffee.Y == newY {
+// game/state.go:MovePlayer — after the potion-pickup loop
+for i, c := range gs.Coffee {
+    if c.X == newX && c.Y == newY {
         gs.Player.Heal(5)
         gs.Player.Damage += 1
         gs.Coffee = append(gs.Coffee[:i], gs.Coffee[i+1:]...)
@@ -268,150 +247,80 @@ for i, coffee := range gs.Coffee {
 }
 ```
 
-### Step 6: Add Rendering
-
-Edit `game/game.go:render()`, after rendering potions:
+### 4d. Render
 
 ```go
-// Render coffee
-coffeeStyle := tcell.StyleDefault.Foreground(tcell.ColorBrown).Background(tcell.ColorBlack)
-for _, coffee := range g.state.Coffee {
-    if g.state.Visible[coffee.Y][coffee.X] {
-        g.screen.SetContent(offsetX+coffee.X, offsetY+coffee.Y, coffee.Symbol, nil, coffeeStyle)
+// game/game.go:render — after the potion rendering
+coffeeStyle := tcell.StyleDefault.Foreground(tcell.ColorOrange).Background(tcell.ColorBlack)
+for _, c := range g.state.Coffee {
+    if g.state.Visible[c.Y][c.X] {
+        g.screen.SetContent(offsetX+c.X, offsetY+c.Y, c.Symbol, nil, coffeeStyle)
     }
 }
 ```
 
-### Done!
-
-Coffee now spawns, heals 5 HP, and grants permanent +1 damage.
-
----
-
-## Modifying Spawn Rates
-
-### Change Enemy Density
-
-Edit `game/state.go:generateLevel()`:
+### 4e. Tests
 
 ```go
-numEnemies := 5 + gs.Level*3  // More enemies (was 3 + gs.Level*2)
-```
+func TestCoffeePickup(t *testing.T) {
+    gs := &GameState{
+        Dungeon:  newTestDungeon(10, 10),
+        RNG:      rand.New(rand.NewSource(1)),
+        Player:   NewPlayer(5, 5),
+        Enemies:  []*Entity{},
+        Potions:  []*Entity{},
+        Visible:  make2D(10, 10),
+        Explored: make2D(10, 10),
+    }
+    gs.Coffee = []*Entity{NewCoffee(6, 5)}
+    gs.Player.HP = 10
+    preDmg := gs.Player.Damage
 
-### Change Potion Frequency
+    gs.MovePlayer(1, 0)
 
-```go
-numPotions := 1 + gs.Level/2  // Fewer potions (was 2 + gs.Level + rand(2))
-```
-
-### Make Bugs Rarer
-
-```go
-if gs.RNG.Float32() > 0.8 {  // 20% chance (was 60%)
-    gs.Enemies = append(gs.Enemies, NewBug(x, y))
-} else {
-    gs.Enemies = append(gs.Enemies, NewScopeCreep(x, y))
+    if gs.Player.HP != 15 { t.Errorf("expected +5 HP, got HP=%d", gs.Player.HP) }
+    if gs.Player.Damage != preDmg+1 { t.Errorf("expected +1 damage") }
+    if len(gs.Coffee) != 0 { t.Errorf("coffee should be consumed") }
 }
 ```
 
----
-
-## Changing Dungeon Generation
-
-### Make Rooms Bigger
-
-Edit `game/dungeon.go`:
-
-```go
-const (
-    MinRoomSize = 8   // Was 6
-    MaxRoomSize = 20  // Was 15
-)
-```
-
-### Generate More Rooms
-
-Edit `game/dungeon.go:GenerateDungeon()`:
-
-```go
-root.Split(rng, 5)  // Depth 5 instead of 4 = more rooms
-```
-
-**Warning:** Depth 5+ can fail to generate if terminal is too small.
-
-### Change Corridor Style
-
-Edit `game/dungeon.go:connectRooms()`:
-
-Replace random L-shape with always horizontal-first:
-
-```go
-d.carveHorizontalCorridor(x1, x2, y1)
-d.carveVerticalCorridor(y1, y2, x2)
-// Remove the `if rng.Float32() > 0.5` check
-```
+(You'll need a `make2D` helper; copy `TestMoveCounter`'s visibility-array setup if you want to avoid writing one.)
 
 ---
 
-## Adding Status Effects
+## Mod 5: Status Effects (Poison)
 
-Let's add a **poison** status effect that deals 1 damage per turn for 3 turns.
-
-### Step 1: Add Fields to Entity
-
-Edit `game/entity.go:Entity` struct:
+### 5a. Field on Entity
 
 ```go
+// game/entity.go
 type Entity struct {
-    Type     EntityType
-    X, Y     int
-    HP       int
-    MaxHP    int
-    Damage   int
-    Symbol   rune
-    Poisoned int  // Turns of poison remaining
+    ...
+    Poisoned int  // remaining turns of poison
 }
 ```
 
-### Step 2: Create a Poison Attack
-
-Modify Scope Creep to inflict poison:
-
-Edit `game/state.go:enemyAttacks()`:
+### 5b. Apply on hit
 
 ```go
-for _, enemy := range gs.Enemies {
-    if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
-        gs.Player.TakeDamage(enemy.Damage)
-        
-        // Scope Creeps inflict poison
-        if enemy.Type == EntityScopeCreep && gs.Player.Poisoned == 0 {
-            gs.Player.Poisoned = 3
-            gs.Message = fmt.Sprintf("A scope creep attacked - %d HP damage (POISONED!)", enemy.Damage)
-        } else {
-            gs.Message = fmt.Sprintf("...")  // Normal messages
-        }
-        
-        // ... rest of attack logic
-    }
+// game/state.go:enemyAttacks — within the dist <= attackRange branch
+if enemy.Name == "Scope Creep" && gs.Player.Poisoned == 0 {
+    gs.Player.Poisoned = 3
 }
 ```
 
-### Step 3: Apply Poison Damage
+Or drive this off a new YAML field — add `inflicts: ["poison"]` to a monster and check `slices.Contains(enemy.Abilities, "poison")`. The `Abilities []string` field is already parsed from YAML and unused at runtime — this is a natural first consumer.
 
-Edit `game/state.go:processTurn()`, at the end:
+### 5c. Tick down and damage
 
 ```go
-// Apply poison damage
+// game/state.go:processTurn — after updateVisibility
 if gs.Player.Poisoned > 0 && !gs.Invulnerable {
     gs.Player.TakeDamage(1)
     gs.Player.Poisoned--
-    if gs.Player.Poisoned > 0 {
-        gs.SetMessage(fmt.Sprintf("Poison damage! (%d turns remaining)", gs.Player.Poisoned))
-    } else {
+    if gs.Player.Poisoned == 0 {
         gs.SetMessage("The poison wears off.")
     }
-    
     if !gs.Player.IsAlive() {
         gs.GameOver = true
         gs.KilledBy = "poison"
@@ -419,312 +328,192 @@ if gs.Player.Poisoned > 0 && !gs.Invulnerable {
 }
 ```
 
-### Step 4: Display Poison Status
-
-Edit `game/game.go:render()`, in the UI bar:
+### 5d. UI
 
 ```go
+// game/game.go:render — near the UI bar construction
 poisonStatus := ""
 if g.state.Player.Poisoned > 0 {
     poisonStatus = fmt.Sprintf(" | POISONED(%d)", g.state.Player.Poisoned)
 }
-
 uiLine := fmt.Sprintf("HP: %d/%d | Level: %d/%d | Kills: %d%s%s | [q]uit",
     g.state.Player.HP, g.state.Player.MaxHP,
     g.state.Level, g.state.MaxLevel,
     g.state.EnemiesKilled,
-    invulnStatus,
-    poisonStatus)  // Add poison status
+    invulnStatus, poisonStatus)
 ```
 
-### Done!
+### 5e. Custom death message
 
-Scope Creeps now inflict a 3-turn poison effect.
+```go
+// game/game.go:getDeathMessage
+case "poison":
+    return "You succumbed to the poison."
+```
+
+Unlike the `"bug"` / `"Bug"` mismatch described in [entities.md](./entities.md#death-attribution), `"poison"` is a value you control end-to-end, so there's no casing bug risk.
 
 ---
 
-## Changing Combat Mechanics
+## Mod 6: Fix the `KilledBy` Case Mismatch
 
-### Add Critical Hits (20% chance for 2x damage)
-
-Edit `game/state.go:playerAutoAttack()`:
+If you're going to touch `getDeathMessage`, fix this while you're there.
 
 ```go
-for _, enemy := range gs.Enemies {
-    if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
-        damage := gs.Player.Damage
-        if gs.RNG.Float32() < 0.2 {  // 20% crit chance
-            damage *= 2
-            gs.SetMessage("CRITICAL HIT!")
-        }
-        enemy.TakeDamage(damage)
-        // ... rest of logic
+// game/game.go:getDeathMessage
+import "strings"
+
+func (g *Game) getDeathMessage() string {
+    normalized := strings.ToLower(strings.ReplaceAll(g.state.KilledBy, " ", "_"))
+    switch normalized {
+    case "bug":
+        return "In GitHub Dungeons... bug squashes YOU"
+    case "scope_creep":
+        return "Foiled by scope creep again!"
+    case "merge_conflict":
+        return fmt.Sprintf("Death by merge conflict. Just a typical %s.", time.Now().Weekday())
+    case "zombie":
+        return "Brains... it had yours."
+    case "hermit_crab":
+        return "Pincered to death. Sideways."
+    default:
+        return "The bugs and scope creeps won..."
     }
 }
 ```
 
-### Add Armor (reduce damage by 1, minimum 1)
-
-Edit `game/entity.go:Entity` struct:
-
-```go
-type Entity struct {
-    // ... existing fields
-    Armor int  // Damage reduction
-}
-```
-
-Edit `game/entity.go:TakeDamage()`:
-
-```go
-func (e *Entity) TakeDamage(dmg int) {
-    dmg -= e.Armor
-    if dmg < 1 {
-        dmg = 1  // Minimum 1 damage
-    }
-    e.HP -= dmg
-    if e.HP < 0 {
-        e.HP = 0
-    }
-}
-```
-
-Give the player some armor:
-
-Edit `game/entity.go:NewPlayer()`:
-
-```go
-func NewPlayer(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityPlayer,
-        HP:     20,
-        MaxHP:  20,
-        Damage: 2,
-        Armor:  1,  // Player has 1 armor
-        Symbol: '@',
-    }
-}
-```
+This is a genuine bug fix, not stylistic. No test currently asserts on death messages, but you could add one.
 
 ---
 
-## Adding New Traps
+## Mod 7: Add a New Trap (Revert Trap)
 
-Let's add a **Revert Trap** that teleports the player to a random room.
-
-### Step 1: Track Trap Location
-
-Edit `game/state.go:GameState` struct:
+Teleports the player to a random room.
 
 ```go
-type GameState struct {
-    // ... existing fields
-    RevertTrapX int
-    RevertTrapY int
-}
+// game/state.go — on GameState
+RevertX, RevertY int
 ```
 
-### Step 2: Place Trap
-
-Edit `game/state.go:generateLevel()`:
-
 ```go
-// Place revert trap (one per level)
-gs.RevertTrapX, gs.RevertTrapY = gs.randomFloorTile()
+// game/state.go:generateLevel — append at END
+gs.RevertX, gs.RevertY = gs.randomFloorTile()
 ```
 
-### Step 3: Trigger Trap
-
-Edit `game/state.go:MovePlayer()`, after merge conflict check:
-
 ```go
-// Check for revert trap
-if newX == gs.RevertTrapX && newY == gs.RevertTrapY {
-    // Teleport player to random room
+// game/state.go:MovePlayer — after the merge-marker check
+if newX == gs.RevertX && newY == gs.RevertY {
     room := gs.Dungeon.Rooms[gs.RNG.Intn(len(gs.Dungeon.Rooms))]
-    gs.Player.X = room.X + room.W/2
-    gs.Player.Y = room.Y + room.H/2
-    gs.SetMessage("REVERT! You've been teleported!")
-    
-    // Move trap to new location
-    gs.RevertTrapX, gs.RevertTrapY = gs.randomFloorTile()
+    cx, cy := room.Center()
+    gs.Player.X, gs.Player.Y = cx, cy
+    gs.SetMessage("git reset --hard! Back to an earlier state...")
+    gs.RevertX, gs.RevertY = gs.randomFloorTile()   // relocate trap
+    // Don't call processTurn for a revert — it's a free teleport, but that's your design choice
 }
 ```
 
-### Done!
+---
 
-The revert trap now teleports the player and relocates itself.
+## Mod 8: Custom Game Modes (Boss Level)
+
+```go
+// game/state.go:generateLevel — after the normal enemy spawn
+if gs.Level == gs.MaxLevel {
+    // Clear random spawns; only the boss remains
+    gs.Enemies = gs.Enemies[:0]
+    center := gs.Dungeon.Rooms[len(gs.Dungeon.Rooms)/2]
+    bx, by := center.Center()
+    gs.Enemies = append(gs.Enemies, &Entity{
+        Type: EntityMonster, X: bx, Y: by,
+        HP: 50, MaxHP: 50, Damage: 5, Symbol: 'B',
+        Name: "The Final Bug", Color: tcell.ColorRed,
+        Speed: 1.0, Movement: MovementAny, AttackRange: 1,
+    })
+}
+```
+
+Boss definitions can also live in `monsters.yaml` with `unique: true` and a spawn gate you add:
+
+```yaml
+  - name: "The Final Bug"
+    token: "B"
+    color: "red"
+    hp: 50
+    strength: 5
+    speed: 1.0
+    movement: "any"
+    attack_range: 1
+    experience_value: 500
+    abilities: []
+    unique: true
+    # Custom: min_level you'd need to wire into generateLevel
+```
+
+(`min_level` would be a new field; plumb it through `MonsterDef` and filter in `GetUniqueMonsters`.)
 
 ---
 
 ## Testing Your Mods
 
-### Use a Fixed Seed
-
-Edit `game/game.go:New()`:
-
-```go
-seed := int64(12345)  // Hard-code for testing
-rng := rand.New(rand.NewSource(seed))
-```
-
-### Add Debug Logging
-
-Edit `game/state.go:generateLevel()`:
-
-```go
-fmt.Printf("Level %d: %d enemies, %d potions\n", gs.Level, len(gs.Enemies), len(gs.Potions))
-```
-
-### Write Unit Tests
-
-Create `game/mymod_test.go`:
-
-```go
-package game
-
-import (
-    "math/rand"
-    "testing"
-)
-
-func TestTechDebtSpawns(t *testing.T) {
-    rng := rand.New(rand.NewSource(42))
-    
-    // Count tech debt spawns over 100 iterations
-    techDebtCount := 0
-    for i := 0; i < 100; i++ {
-        x, y := 0, 0
-        roll := rng.Float32()
-        if roll < 0.4 {
-            techDebtCount++
-        }
-    }
-    
-    // Expect ~40 tech debt out of 100
-    if techDebtCount < 30 || techDebtCount > 50 {
-        t.Errorf("Expected ~40 tech debt, got %d", techDebtCount)
-    }
-}
-```
-
-Run tests:
+### Run everything
 
 ```bash
-go test ./game
+go test ./game -count=1
+```
+
+### Use a fixed seed in tests
+
+```go
+rng := rand.New(rand.NewSource(12345))
+d := GenerateDungeon(80, 27, rng, nil)
+```
+
+### Hardcode a seed for manual play
+
+```go
+// game/game.go:New — for debugging only
+seed := int64(12345)  // <<< temporary override
+// seed := computeSeed(codeFiles)
+```
+
+Revert before committing. Seriously.
+
+### Print to stderr, not stdout
+
+tcell owns stdout while the game is running. Debug prints must go to stderr:
+
+```go
+fmt.Fprintf(os.Stderr, "spawn count = %d\n", numEnemies)
 ```
 
 ---
 
 ## Common Pitfalls
 
-### Forgetting to Initialize New Fields
-
-If you add a field to `GameState`, initialize it in `NewGameState()` and reset it in `generateLevel()`.
-
-### Breaking Determinism
-
-If you use non-seeded randomness (e.g., `math/rand.Float32()` directly), different runs will produce different results. Always use `gs.RNG`.
-
-### Off-by-One Errors
-
-Remember that tiles are `[y][x]`, not `[x][y]`. Check bounds before accessing:
-
-```go
-if y >= 0 && y < height && x >= 0 && x < width {
-    tile := dungeon.Tiles[y][x]
-}
-```
-
-### Not Rendering New Entities
-
-If you add a new entity type, remember to render it in `game.go:render()`, otherwise it won't appear.
+1. **Reading `Tiles[x][y]` instead of `Tiles[y][x]`.** Row-major. Always.
+2. **Forgetting the render layer.** New entity types *must* be added to `game.go:render` or they won't draw. Visibility gates should usually apply.
+3. **Shifting RNG consumption mid-function.** Inserting a `gs.RNG.Intn` call in the middle of `generateLevel` shifts every subsequent random decision for existing seeds. Append at the end, or embrace the new randomness.
+4. **Relying on YAML-only changes taking effect without a rebuild.** `monsters.yaml` is embedded via `//go:embed`. `go build` is required.
+5. **Goroutines.** Don't. The loop is single-threaded; touching `GameState` from another goroutine will race.
+6. **Panics in hot paths.** A panic while tcell holds the terminal leaves the user's shell in raw mode. Prefer `if` checks over uncontrolled indexing.
+7. **Windows line endings in YAML.** `yaml.v3` handles them, but if you're editing via a weird tool check for stray `\r` characters.
 
 ---
 
-## Advanced: Custom Game Modes
+## Contributing
 
-### Boss Fight Mode
-
-Add a `BossLevel` field to `GameState`:
-
-```go
-type GameState struct {
-    // ...
-    BossLevel bool
-}
-```
-
-Edit `game/state.go:generateLevel()`:
-
-```go
-if gs.Level == gs.MaxLevel {
-    gs.BossLevel = true
-    
-    // Spawn boss in center room
-    centerRoom := gs.Dungeon.Rooms[len(gs.Dungeon.Rooms)/2]
-    bx, by := centerRoom.Center()
-    boss := NewBoss(bx, by)
-    gs.Enemies = []*Entity{boss}  // Only the boss
-}
-```
-
-Create the boss:
-
-```go
-func NewBoss(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityBug,  // Reuse type or create EntityBoss
-        HP:     50,
-        MaxHP:  50,
-        Damage: 5,
-        Symbol: 'B',
-    }
-}
-```
-
-### Speedrun Timer
-
-Add a timer field:
-
-```go
-type GameState struct {
-    // ...
-    StartTime time.Time
-}
-```
-
-Initialize in `NewGameState()`:
-
-```go
-gs.StartTime = time.Now()
-```
-
-Display in UI:
-
-```go
-elapsed := time.Since(g.state.StartTime).Seconds()
-uiLine := fmt.Sprintf("HP: %d/%d | Time: %.1fs | ...", gs.Player.HP, gs.Player.MaxHP, elapsed)
-```
+- Fork the repo.
+- Run `go test ./game -count=1` before and after your change.
+- If you added a new field to `MonsterDef`, add at least one test that exercises it (see `TestHermitCrabIsRedH` for a template).
+- If you change `generateLevel`'s RNG consumption, say so in the PR description — other users' seeds will shift.
+- Update the relevant doc in `docs/`. Cite code locations (`file.go:Function`).
 
 ---
 
-## Contributing Your Mods
+## See Also
 
-If you create a cool mod:
-
-1. Fork the repo
-2. Add your changes
-3. Update README with mod description
-4. Submit a pull request
-
-Or share your fork in GitHub Discussions!
-
----
-
-## Further Reading
-
-- [architecture.md](./architecture.md) — Understand the codebase structure
-- [entities.md](./entities.md) — Deep dive into entity system
-- [dungeon-generation.md](./dungeon-generation.md) — Modify map generation
-- [seeding.md](./seeding.md) — Maintain determinism in mods
+- [monsters.md](./monsters.md) — YAML schema in detail
+- [entities.md](./entities.md) — Runtime behavior reference (incl. known bugs to fix)
+- [architecture.md](./architecture.md) — Where everything lives
+- [seeding.md](./seeding.md) — Determinism constraints
+- [merge-conflict.md](./merge-conflict.md) — Before extending merge mechanics, read this

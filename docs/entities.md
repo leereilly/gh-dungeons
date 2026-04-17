@@ -1,547 +1,323 @@
 # Entities
 
-A complete reference to all entities in gh-dungeons: player, enemies, items, and interactive objects.
+Every tile-occupying thing in the game: the player, the monsters (all YAML-driven), the potions, and the quasi-entity door. For the YAML schema specifically, see [monsters.md](./monsters.md).
 
 ---
 
-## Entity System Overview
+## The `Entity` Struct
 
-All game objects that occupy a tile are represented by the `Entity` struct in `game/entity.go`.
-
-**`Entity` struct definition:**
+Every actor uses the same struct. From `game/entity.go`:
 
 ```go
 type Entity struct {
-    Type   EntityType  // Player, Bug, ScopeCreep, Potion
-    X, Y   int         // Position on the map
-    HP     int         // Current hit points
-    MaxHP  int         // Maximum hit points
-    Damage int         // Damage dealt per attack
-    Symbol rune        // Character displayed on screen
+    Type            EntityType
+    X, Y            int
+    HP, MaxHP       int
+    Damage          int
+    Symbol          rune
+    Name            string       // display name and KilledBy value
+    Color           tcell.Color  // currently unused at render time (see "quirks")
+    Speed           float64      // <1.0 means "moves less often than once per turn"
+    Movement        MovementType // straight|diagonal|any|stationary|horizontal
+    AttackRange     int          // 1 = melee, 2+ = ranged (Chebyshev)
+    ExperienceValue int          // currently inert — no XP/level-up system
+    Abilities       []string     // currently inert — parsed but no consumer
+    TurnAccumulator float64      // fractional-turn accumulator for slow (Speed<1) enemies
 }
+
+type EntityType int
+const (
+    EntityPlayer     EntityType = iota
+    EntityMonster
+    EntityPotion
+    EntityBug         // legacy, used only by tests
+    EntityScopeCreep  // legacy, used only by tests
+)
 ```
+
+**Methods:**
+
+| Method                        | Definition                                               |
+| ----------------------------- | -------------------------------------------------------- |
+| `IsAlive() bool`              | `HP > 0`                                                 |
+| `TakeDamage(dmg int)`         | `HP -= dmg`; clamped to `0`                              |
+| `Heal(amount int)`            | `HP += amount`; clamped to `MaxHP`                       |
+| `IsEnemy() bool`              | `Type ∈ {Monster, Bug, ScopeCreep}`                      |
+| `DistanceTo(other) int`       | **Chebyshev** `max(|dx|, |dy|)`                          |
+| `IsAdjacent(other) bool`      | Chebyshev ≤ 1, excluding self (must differ in ≥1 axis)   |
 
 ---
 
-## Player
+## The Player
 
-**Symbol:** `@`  
-**Starting HP:** 20  
-**Max HP:** 20  
-**Damage:** 2  
-**Movement:** WASD, arrow keys, vim keys (hjklyubn)
+- Symbol: `@` (bold white, always rendered on top).
+- HP: 20 / MaxHP: 20.
+- Damage: 2.
+- Movement: `MovementAny` (8-directional, no speed penalty).
+- Spawn: center of `Rooms[0]` on every new level.
 
-**Constructor:**
-```go
-func NewPlayer(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityPlayer,
-        X:      x,
-        Y:      y,
-        HP:     20,
-        MaxHP:  20,
-        Damage: 2,
-        Symbol: '@',
-    }
-}
-```
+**Controls** (`game.go:Run`):
 
-**Spawn location:** Center of the first room (from `state.go:generateLevel()`).
+| Direction      | Keys                                |
+| -------------- | ----------------------------------- |
+| Up             | `↑` / `k` / `w`                     |
+| Down           | `↓` / `j` / `s`                     |
+| Left           | `←` / `h` / `a`                     |
+| Right          | `→` / `l` / `d`                     |
+| Diagonal UL    | `y`                                 |
+| Diagonal UR    | `u`                                 |
+| Diagonal DL    | `b`                                 |
+| Diagonal DR    | `n`                                 |
+| Quit           | `q` / `Q` / `Esc` / `Ctrl-C`        |
+| Dismiss end-screen | `Enter` / `Space`                |
 
 **Special abilities:**
-- **Auto-attack:** Automatically attacks all adjacent enemies each turn
-- **Bump-to-attack:** Moving into an enemy triggers an attack instead of movement
-- **Konami code:** `↑ ↑ ↓ ↓ ← → ← → B A` grants invulnerability
 
-**Movement details:**
-- Cardinal directions: Up, Down, Left, Right
-- Diagonal directions: Y (up-left), U (up-right), B (down-left), N (down-right)
-- Cannot move into walls
-- Cannot move into enemies (attacks them instead)
-
----
-
-## Enemies
-
-### Bug
-
-**Symbol:** `b`  
-**HP:** 1  
-**Max HP:** 1  
-**Damage:** 1  
-
-**Constructor:**
-```go
-func NewBug(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityBug,
-        X:      x,
-        Y:      y,
-        HP:     1,
-        MaxHP:  1,
-        Damage: 1,
-        Symbol: 'b',
-    }
-}
-```
-
-**Flavor:** Weak, one-shot enemies. The traditional roguelike fodder.
-
-**Spawn rate:** 60% chance per enemy slot (from `state.go:generateLevel()`):
-
-```go
-if gs.RNG.Float32() > 0.4 {
-    gs.Enemies = append(gs.Enemies, NewBug(x, y))
-}
-```
-
-**Death message:** `"You squashed a bug!"`
-
----
-
-### Scope Creep
-
-**Symbol:** `s`  
-**HP:** 3  
-**Max HP:** 3  
-**Damage:** 2  
-
-**Constructor:**
-```go
-func NewScopeCreep(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityScopeCreep,
-        X:      x,
-        Y:      y,
-        HP:     3,
-        MaxHP:  3,
-        Damage: 2,
-        Symbol: 's',
-    }
-}
-```
-
-**Flavor:** Tougher enemies that hit harder. Named after the project management anti-pattern.
-
-**Spawn rate:** 40% chance per enemy slot.
-
-**Death message:** `"You eliminated a scope creep!"`
-
-**Note:** The README incorrectly lists the symbol as `c`, but the code uses `s`.
-
----
-
-### Enemy AI
-
-**Chase behavior** (from `state.go:moveEnemies()`):
-
-```go
-// Only move if player is visible (line of sight check)
-if !gs.hasLineOfSight(enemy.X, enemy.Y, gs.Player.X, gs.Player.Y) {
-    continue
-}
-
-// Simple chase AI - move toward player
-dx, dy := 0, 0
-if enemy.X < gs.Player.X {
-    dx = 1
-} else if enemy.X > gs.Player.X {
-    dx = -1
-}
-if enemy.Y < gs.Player.Y {
-    dy = 1
-} else if enemy.Y > gs.Player.Y {
-    dy = -1
-}
-
-// Try diagonal move first, then cardinal directions
-```
-
-**Key behavior:**
-- **Dormant when not visible:** Enemies don't move unless they have line of sight to the player
-- **Diagonal preferred:** Tries to move both dx and dy simultaneously
-- **Collision avoidance:** Won't move into walls, player, or other enemies
-- **Attacks when adjacent:** Automatically attacks player if next to them
-
-**Line of sight:** Uses Bresenham-like ray casting (from `state.go:hasLineOfSight()`). Blocked by walls only, not by other entities.
-
----
-
-### Enemy Spawn Formula
-
-From `state.go:generateLevel()`:
-
-```go
-numEnemies := 3 + gs.Level*2
-```
-
-**Spawn count by level:**
-- Level 1: 5 enemies
-- Level 2: 7 enemies
-- Level 3: 9 enemies
-- Level 4: 11 enemies
-- Level 5: 13 enemies
-
-**Composition:** 60% Bugs, 40% Scope Creeps (on average).
-
----
-
-## Items
-
-### Health Potion
-
-**Symbol:** `+`  
-**HP:** N/A  
-**Damage:** N/A  
-**Heal amount:** 3 HP
-
-**Constructor:**
-```go
-func NewPotion(x, y int) *Entity {
-    return &Entity{
-        Type:   EntityPotion,
-        X:      x,
-        Y:      y,
-        Symbol: '+',
-    }
-}
-```
-
-**Pickup behavior:**
-- Automatically consumed when player moves onto the tile
-- Restores 3 HP (capped at MaxHP)
-- Removed from the map after use
-
-**Pickup message:** `"You drink a health potion! (+3 HP)"`
-
-**Spawn formula** (from `state.go:generateLevel()`):
-
-```go
-numPotions := 2 + gs.Level + gs.RNG.Intn(2)
-```
-
-**Spawn count by level:**
-- Level 1: 3-4 potions
-- Level 2: 4-5 potions
-- Level 3: 5-6 potions
-- Level 4: 6-7 potions
-- Level 5: 7-8 potions
-
----
-
-## Interactive Objects
-
-### Door (Stairs)
-
-**Symbol:** `>`  
-**Tile type:** `TileDoor`  
-**Not an Entity:** Stored in `Dungeon.Tiles`, not as a separate entity.
-
-**Placement:** One door per level, placed in the last room (from `dungeon.go:PlaceDoor()`):
-
-```go
-room := d.Rooms[len(d.Rooms)-1]  // Last room
-x := room.X + rng.Intn(room.W-2) + 1
-y := room.Y + rng.Intn(room.H-2) + 1
-d.Tiles[y][x] = TileDoor
-```
-
-**Behavior when player enters:**
-- If `Level < MaxLevel` (5): Increment level, generate new dungeon
-- If `Level >= MaxLevel`: Set `Victory = true`, show victory screen
-
-**Message:** `"You descend deeper into the dungeon..."` or `"You've escaped the dungeon! Victory!"`
-
----
-
-## Hidden Content: Merge Conflict Trap
-
-**Symbol:** `<` `>` `=` (animated)  
-**Damage:** 1 HP per turn while standing on it  
-**Trigger:** One hidden trap per level, placed on a random floor tile
-
-**Visual effect:**
-- When triggered, displays a 5x3 pattern of conflict markers
-- Fire spreads to 7 adjacent tiles
-- Walls turn red
-- Pattern animates with color rotation (red → orange → yellow)
-
-**Placement logic** (from `state.go:generateLevel()`):
-
-```go
-gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile()
-```
-
-**Damage logic** (from `state.go:checkMergeConflict()`):
-
-```go
-if !gs.Invulnerable {
-    gs.Player.TakeDamage(1)
-    gs.Message = "- 1 HP damage"
-}
-```
-
-**Death message:** `"Death by merge conflict. Just a typical [DayOfWeek]."`
-
-**Merge mode:** Run with `gh dungeons --merge` to see an `X` marker at the trap location.
+- **Bump-to-attack.** Moving into an adjacent enemy attacks instead of moves; does not increment `MoveCount`.
+- **Auto-attack.** Every `processTurn` hits every adjacent enemy for `Player.Damage` — free, guaranteed, no miss chance.
+- **Konami.** See below.
 
 ---
 
 ## Combat System
 
-### Attack Resolution
+Combat has no misses, no crits, no armor. It's stat subtraction.
 
-**Player attacks enemy:**
-```go
-enemy.TakeDamage(gs.Player.Damage)  // Always hits, always deals 2 damage
-if !enemy.IsAlive() {
-    gs.EnemiesKilled++
-}
-```
+### Player → enemy
 
-**Enemy attacks player:**
-```go
-gs.Player.TakeDamage(enemy.Damage)  // Always hits
-if !gs.Player.IsAlive() {
-    gs.GameOver = true
-}
-```
+Two sources:
 
-**No miss chance, no critical hits, no armor.** Combat is deterministic based on stats.
-
-### Auto-Attack
-
-From `state.go:playerAutoAttack()`:
+1. **Bump attack** (from `MovePlayer`): single hit on the specific enemy in the target tile.
+2. **Auto-attack** (from `processTurn → playerAutoAttack`): hits **every** adjacent enemy, every turn.
 
 ```go
+// state.go:playerAutoAttack
 for _, enemy := range gs.Enemies {
     if enemy.IsAlive() && gs.Player.IsAdjacent(enemy) {
         enemy.TakeDamage(gs.Player.Damage)
+        if !enemy.IsAlive() {
+            gs.EnemiesKilled++
+            gs.SetMessage(fmt.Sprintf("You defeated the %s!", enemy.Name))
+        }
     }
 }
 ```
 
-Triggers **every turn** after player movement. This means:
-- You don't need to bump into enemies to attack them
-- Standing next to an enemy and moving in place attacks them
-- Multiple adjacent enemies are all attacked each turn
+> ⚠️ Bump-attack calls `moveEnemies` + `enemyAttacks` directly and returns before `processTurn`. So bumping doesn't also trigger your auto-attack pass that turn. The single bump *is* your attack.
 
-### Adjacency Check
-
-From `entity.go:IsAdjacent()`:
+### Enemy → player (`state.go:enemyAttacks`)
 
 ```go
-func (e *Entity) IsAdjacent(other *Entity) bool {
-    dx := abs(e.X - other.X)
-    dy := abs(e.Y - other.Y)
-    return dx <= 1 && dy <= 1 && (dx+dy > 0)
+if gs.Invulnerable { return }   // Konami short-circuits the whole pass
+for _, enemy := range gs.Enemies {
+    if !enemy.IsAlive() { continue }
+    attackRange := enemy.AttackRange
+    if attackRange <= 0 { attackRange = 1 }   // default melee
+    if enemy.DistanceTo(gs.Player) <= attackRange {
+        gs.Player.TakeDamage(enemy.Damage)
+        gs.Message = fmt.Sprintf("A %s attacked - %d HP damage", enemy.Name, enemy.Damage)
+        gs.MessageStyle = redBold
+        if !gs.Player.IsAlive() { gs.KilledBy = enemy.Name }
+    }
 }
 ```
 
-Uses **Chebyshev distance** (8-way adjacency). Diagonal counts as adjacent.
+Note `AttackRange > 1` enables ranged attacks without projectile animation — a distant archer-type monster can hit through fog of war. Currently nothing in `monsters.yaml` uses range > 1, but the mechanic is live.
+
+### Enemy AI (`state.go:moveEnemies`)
+
+```
+for each living enemy:
+    if Speed < 1:
+        TurnAccumulator += Speed
+        if TurnAccumulator < 1: skip this turn
+        TurnAccumulator -= 1
+    if !hasLineOfSight(enemy, player): skip this turn  (enemies are dormant unless they see you)
+
+    compute desired (dx, dy) stepping toward the player  (sign of Player.X - enemy.X, etc.)
+
+    switch Movement:
+      MovementStationary: continue (never moves, but can still attack at range)
+      MovementStraight:   zero-out the shorter axis (Manhattan-dominant direction)
+      MovementDiagonal:   if dx==0 or dy==0: skip turn (can only move diagonally)
+      MovementHorizontal: dy = 0; if dx==0: skip
+      MovementAny:        no restriction (prefer diagonal)
+
+    Try (x+dx, y+dy). If blocked, fall back axis-by-axis (honoring the movement type).
+    If the enemy is currently standing in merge-conflict fire, it takes 1 damage.
+```
+
+Key details:
+- **Line-of-sight gate**: enemies only act when `hasLineOfSight(enemy, player)` returns true. This is a fast integer ray march through `Tiles`; it does not consider other entities as blockers.
+- **Speed**: fractional. `Speed: 0.5` = moves every other turn. `Speed: 0.25` = every fourth. `Speed: 1.0` is the default; `>1.0` is legal but currently not used by any monster and would act every turn (the code only gates when `Speed < 1.0`).
+- **Movement** restrictions are enforced both on the desired move and on the fallback single-axis moves.
+- **Merge-conflict fire** damages enemies inside its area every time they act. This is intentional and is the only way to thin out a crowd that's camping the trap.
 
 ---
 
-## Entity Methods
+## Monsters (as of current `monsters.yaml`)
 
-### `IsAlive() bool`
+All spawns come from the YAML registry. The table below is the shipped set; see [monsters.md](./monsters.md) for the full schema.
 
-Returns `HP > 0`. Used for:
-- Skipping dead enemies in movement/attack logic
-- Determining when to show death messages
+| Name         | Token | Color  | HP | Str | Speed | Movement    | Range | XP | Unique | Description                                         |
+| ------------ | ----- | ------ | -- | --- | ----- | ----------- | ----- | -- | ------ | --------------------------------------------------- |
+| Bug          | `b`   | red    | 1  | 1   | 1.0   | any         | 1     | 5  | –      | Classic one-shot roguelike fodder                   |
+| Scope Creep  | `s`   | yellow | 3  | 2   | 1.0   | any         | 1     | 10 | –      | Tankier, hits harder, named after the anti-pattern  |
+| Zombie       | `z`   | green  | 3  | 2   | 0.5   | straight    | 1     | 15 | –      | Slow, cardinal-only, scary in corridors             |
+| Hermit Crab  | `H`   | red    | 2  | 2   | 1.0   | horizontal  | 1     | 20 | ✓      | Sidles east/west only; never climbs                 |
 
-### `TakeDamage(dmg int)`
+All enemies currently render as red on screen regardless of the `Color` field — that's a render-layer wart, not a YAML issue.
 
-```go
-func (e *Entity) TakeDamage(dmg int) {
-    e.HP -= dmg
-    if e.HP < 0 {
-        e.HP = 0
-    }
-}
-```
-
-Simple subtraction, clamped at 0.
-
-### `Heal(amount int)`
+### Spawn counts per level (`state.go:generateLevel`)
 
 ```go
-func (e *Entity) Heal(amount int) {
-    e.HP += amount
-    if e.HP > e.MaxHP {
-        e.HP = e.MaxHP
-    }
-}
+numEnemies := 3 + gs.Level*2   // uniform random over non-unique YAML entries
+// plus one of each unique monster
+numPotions := 2 + gs.Level + rng.Intn(2)
 ```
 
-Used by potions. Cannot exceed `MaxHP`.
+| Level | Random enemies | + Uniques      | Potions |
+| ----- | -------------- | -------------- | ------- |
+| 1     | 5              | +1 Hermit Crab | 3–4     |
+| 2     | 7              | +1 Hermit Crab | 4–5     |
+| 3     | 9              | +1 Hermit Crab | 5–6     |
+| 4     | 11             | +1 Hermit Crab | 6–7     |
+| 5     | 13             | +1 Hermit Crab | 7–8     |
 
-### `IsEnemy() bool`
+The random pool is uniform across all non-unique YAML entries (currently Bug, Scope Creep, Zombie), so each has ≈1/3 weight. There is no per-monster spawn weighting; to tune rarity, duplicate entries or add a weight field and plumb it through `monster.go`.
+
+---
+
+## Items
+
+### Health Potion (`+`)
+
+Not really an `Entity` in the combat sense — `NewPotion` only sets `Type`, `X/Y`, and `Symbol`. The heal amount is hard-coded in `MovePlayer`:
 
 ```go
-return e.Type == EntityBug || e.Type == EntityScopeCreep
+gs.Player.Heal(3)
+gs.Potions = append(gs.Potions[:i], gs.Potions[i+1:]...)
+gs.SetMessage("You drink a health potion! (+3 HP)")
 ```
 
-Used for filtering entities (not currently used in code, but available for modding).
+Pickup is automatic on stepping onto the tile. Max HP is still 20, so overheal is wasted.
 
-### `DistanceTo(other *Entity) int`
+---
 
-```go
-dx := abs(e.X - other.X)
-dy := abs(e.Y - other.Y)
-return max(dx, dy)  // Chebyshev distance
-```
+## The Door / Stairs (`>`)
 
-Not currently used in game logic, but available for distance checks.
+The door is a **tile**, not an entity — it's a `TileDoor` in `Dungeon.Tiles`. Placed by `Dungeon.PlaceDoor` in the last-generated room on every level.
+
+Triggering (from `MovePlayer`):
+- If `Level >= MaxLevel` (5): `Victory = true`, end screen.
+- Otherwise: `Level++`, `generateLevel()`, `"You descend deeper into the dungeon..."`.
+
+**Door transitions bypass `processTurn`.** Enemies don't get a free hit as you step on the stairs.
+
+---
+
+## The Merge Conflict Trap
+
+There are actually **two** merge-conflict subsystems. This section covers the gameplay-facing one; see [merge-conflict.md](./merge-conflict.md) for the full story.
+
+### The fire trap (`MergeConflictX/Y`)
+
+- Placed by `generateLevel` on a random floor tile, every level.
+- No marker on the map until you trigger it.
+- Stepping on it:
+  - Sets `OnMergeConflict = true`, `MergeConflictTriggered = true`.
+  - Generates a 7-tile "fire spread" around the core 5×3 conflict pattern.
+  - Deals 1 HP/turn while you stand on the center tile (unless invulnerable).
+- Moving off the center keeps `MergeConflictTriggered` true forever — walls turn red, the fire keeps animating, and any enemies that step into the area take 1 damage.
+- Proximity warning: when the player is within Chebyshev distance 2 of the trap center and no other message is set, the UI shows `"WARNING: MERGE CONFLICT DETECTED. TREAD CAREFULLY."`.
+
+### The `--merge`-mode marker (`MergeMarkerX/Y`)
+
+Only active when the game is launched with `--merge`. A red `X` is drawn at the central room's center and stepping on it calls `triggerMergeConflict`, which deals **2** damage immediately and marks a 3×3 area as "merge-affected" (tiles animate conflict characters for the rest of the level). Not to be confused with the random-tile fire trap above.
+
+The two systems coexist in `GameState` but have independent state; see the dedicated doc for an untangling.
 
 ---
 
 ## Konami Code
 
-**Sequence:** `↑ ↑ ↓ ↓ ← → ← → B A`
+Sequence: **↑ ↑ ↓ ↓ ← → ← → b a**
 
-**Effect:** Sets `Invulnerable = true`, player takes no damage from any source.
-
-**Implementation** (from `state.go:CheckKonamiCode()`):
+Implementation (`state.go:CheckKonamiCode`):
 
 ```go
-konamiCode := []string{"up", "up", "down", "down", "left", "right", "left", "right", "b", "a"}
-
+konamiCode := []string{"up","up","down","down","left","right","left","right","b","a"}
 gs.KonamiSequence = append(gs.KonamiSequence, key)
-
-// Keep only last 10 keys
 if len(gs.KonamiSequence) > 10 {
     gs.KonamiSequence = gs.KonamiSequence[len(gs.KonamiSequence)-10:]
 }
-
-// Check for match
-if len(gs.KonamiSequence) == 10 {
-    match := true
-    for i := 0; i < 10; i++ {
-        if gs.KonamiSequence[i] != konamiCode[i] {
-            match = false
-            break
-        }
-    }
-    if match && !gs.Invulnerable {
-        gs.Invulnerable = true
-        gs.SetMessage("KONAMI CODE ACTIVATED! You are now invulnerable!")
-    }
+if match && !gs.Invulnerable {
+    gs.Invulnerable = true
+    gs.SetMessage("KONAMI CODE ACTIVATED! You are now invulnerable!")
 }
 ```
 
-**Notes:**
-- Must use arrow keys for directional inputs (WASD doesn't count)
-- Must press `b` and `a` keys specifically (not `B` or diagonal movement)
-- One-time activation per game (doesn't toggle off)
+The driver in `game.go:Run` only assigns `konamiKey` for **arrow keys** and the literal runes `a` and `b`. So WASD-left does not count as "left" for Konami purposes, and vi-keys `h j k l` don't contribute either. You must use the arrow cluster plus the letter keys.
+
+Effect: `enemyAttacks` early-returns, so no damage from monsters. The merge-conflict fire trap also checks `Invulnerable` and shows `"The merge conflict burns around you, but your invulnerability protects you!"` instead of dealing damage. The `--merge` marker's `triggerMergeConflict` also respects invulnerability. Konami is a full damage shield.
+
+There is no toggle-off. Activation is a one-way trip.
 
 ---
 
-## Visibility and Rendering
+## Death Attribution
 
-### Fog of War
+`KilledBy` is set in two places:
 
-**Vision radius:** 7 tiles (from `state.go:VisionRadius`)
+- `state.go:enemyAttacks` — `gs.KilledBy = enemy.Name` (e.g., `"Bug"`, `"Zombie"`).
+- `state.go:checkMergeConflict` — `gs.KilledBy = "merge_conflict"` (only from the fire trap; the `--merge` marker's `triggerMergeConflict` does **not** set `KilledBy`).
 
-**Ray casting:** 180 rays cast every 2 degrees (from `state.go:updateVisibility()`):
-
-```go
-for angle := 0; angle < 360; angle += 2 {
-    gs.castRay(px, py, angle)
-}
-```
-
-**Visibility states:**
-- **Visible:** Full color, entities rendered
-- **Explored but not visible:** Dimmed (Color240), no entities
-- **Unexplored:** Not rendered
-
-### Rendering Order
-
-From `game.go:render()`:
-
-1. Tiles (walls, floors, doors)
-2. Potions
-3. Merge conflict fire (if triggered)
-4. Enemies
-5. Player
-
-**Result:** Player is always rendered on top, even if multiple entities occupy the same tile (shouldn't happen, but graceful if it does).
-
----
-
-## Custom Death Messages
-
-From `game.go:getDeathMessage()`:
+`game.go:getDeathMessage` then switches:
 
 ```go
 switch g.state.KilledBy {
-case "bug":
-    return "In GitHub Dungeons... bug squashes YOU"
-case "merge_conflict":
-    dayName := time.Now().Weekday().String()
-    return fmt.Sprintf("Death by merge conflict. Just a typical %s.", dayName)
-case "scope_creep":
-    return "Foiled by scope creep again!"
-default:
-    return "The bugs and scope creeps won..."
+case "bug":            return "In GitHub Dungeons... bug squashes YOU"
+case "merge_conflict": return fmt.Sprintf("Death by merge conflict. Just a typical %s.", time.Now().Weekday())
+case "scope_creep":    return "Foiled by scope creep again!"
+default:               return "The bugs and scope creeps won..."
 }
 ```
 
-**KilledBy tracking:** Set in `state.go` when player HP reaches 0:
-- `"bug"` — Killed by a Bug's attack
-- `"scope_creep"` — Killed by a Scope Creep's attack
-- `"merge_conflict"` — Killed by standing on the merge conflict trap
+> ⚠️ **Known mismatch.** The switch expects lowercase `"bug"` / `"scope_creep"`, but `enemyAttacks` writes the monster's proper-case `Name` (`"Bug"`, `"Scope Creep"`, `"Zombie"`, `"Hermit Crab"`). Every monster death therefore falls through to the default message. Only merge-conflict trap deaths render the themed message.
+>
+> If you fix this, the least-invasive approach is to normalize: `strings.ToLower(strings.ReplaceAll(gs.KilledBy, " ", "_"))`. Or switch directly on `gs.KilledBy == "Bug"` etc. Either works; the docs should be updated to match.
 
 ---
 
-## Modding Entities
+## Visibility (Fog of War)
 
-See [modding.md](./modding.md) for full examples, but here's a quick reference:
+From `state.go:updateVisibility` + `castRay`:
 
-### Add a new enemy type
+- `VisionRadius = 7` tiles.
+- 180 rays cast at 2° intervals per turn.
+- Each ray advances 1 unit per step, rounds to nearest cell, marks `Visible` and `Explored`, terminates on `TileWall`.
+- Trigonometry is hand-rolled (`sin`, `cos`, `mod2pi` in `state.go`) using Taylor series. Platform-deterministic, no `math.Sin` dependency.
 
-1. Add to `EntityType` enum in `entity.go`
-2. Create constructor (e.g., `NewTechDebt(x, y int)`)
-3. Add spawn logic in `state.go:generateLevel()`
-4. Add death message in `state.go:enemyAttacks()`
-5. (Optional) Add custom AI in `state.go:moveEnemies()`
+In the renderer:
+- Visible tiles → normal colors, entities drawn.
+- Explored but not currently visible → dimmed (`tcell.Color240`), entities hidden.
+- Unexplored → blank.
 
-### Change enemy stats
+---
 
-Edit the constructors in `entity.go`:
+## Quirks & Dead Code
 
-```go
-func NewBug(x, y int) *Entity {
-    return &Entity{
-        HP:     2,   // Was 1, now tankier
-        Damage: 2,   // Was 1, now hits harder
-        // ...
-    }
-}
-```
-
-### Change spawn rates
-
-Edit `state.go:generateLevel()`:
-
-```go
-numEnemies := 5 + gs.Level*3  // More enemies per level
-numPotions := 1 + gs.Level    // Fewer potions
-```
-
-Or change the Bug/Scope Creep ratio:
-
-```go
-if gs.RNG.Float32() > 0.7 {  // 30% Bugs, 70% Scope Creeps
-    gs.Enemies = append(gs.Enemies, NewBug(x, y))
-}
-```
+- **`Entity.Color`** — parsed from YAML, stored on the entity, **never read at render time.** `game.go:render` uses a single `enemyStyle` (`ColorRed`). This is an obvious short PR opportunity.
+- **`Entity.ExperienceValue`, `Entity.Abilities`** — plumbed through YAML → registry → entity, but no game logic consumes them. No XP, no status effects (yet).
+- **Legacy `NewBug` / `NewScopeCreep` / `EntityBug` / `EntityScopeCreep`** — exist solely for existing unit tests. Production spawning goes exclusively through `NewMonsterFromDef`. Do not add new hardcoded constructors; add YAML entries instead.
+- **`TurnAccumulator`** reset-on-level behavior — enemies are recreated every level, so accumulators reset implicitly. If you ever persist enemies across levels you'll need to reset explicitly.
+- **`MergeConflict` field** (the `*MergeConflictLocation` loaded under `--merge`) is stored but currently unused — `findMergeConflict` runs, populates the state, and no game code queries it. Latent feature.
 
 ---
 
 ## Further Reading
 
-- [architecture.md](./architecture.md) — System overview
-- [modding.md](./modding.md) — How to add new entities
-- [seeding.md](./seeding.md) — Deterministic entity placement
+- [monsters.md](./monsters.md) — YAML schema reference
+- [merge-conflict.md](./merge-conflict.md) — Both merge-conflict subsystems in detail
+- [modding.md](./modding.md) — Step-by-step mods, YAML-first
+- [architecture.md](./architecture.md) — Where entities fit in the loop

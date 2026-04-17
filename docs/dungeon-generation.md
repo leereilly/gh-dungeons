@@ -1,418 +1,401 @@
 # Dungeon Generation
 
-A detailed explanation of how gh-dungeons creates procedural levels using Binary Space Partitioning.
+How `gh-dungeons` builds each of its five floors using Binary Space Partitioning.
+
+Everything in this file is implemented in `game/dungeon.go`, with driver calls from `game/state.go:generateLevel`.
 
 ---
 
 ## Overview
 
-Each dungeon level is generated using a **Binary Space Partitioning (BSP) tree** algorithm. This creates organic-looking layouts with distinct rooms connected by L-shaped corridors.
+Each level goes through five phases:
 
-The algorithm is deterministic: the same RNG seed always produces the same dungeon.
+```
+1. Allocate tile grid (width × height), fill with TileWall.
+2. Build a BSP tree (depth 4) over the full rectangle.
+3. Place one room per leaf node of the BSP tree.
+4. Carve rooms as TileFloor.
+5. Walk the tree post-order; connect siblings with L-shaped corridors.
+```
+
+Then `state.go:generateLevel` decorates the finished dungeon:
+- Places the player in the center of `Rooms[0]`.
+- Calls `Dungeon.PlaceDoor` to stamp a `TileDoor` in the last room.
+- Chooses `MergeConflictX/Y` (random floor tile — the fire trap).
+- Calls `findCentralRoomCenter(dungeon)` to pick `MergeMarkerX/Y` (the `--merge` marker).
+- Spawns enemies and potions on random floor tiles.
+
+Dungeon generation is deterministic: same `rng` ⇒ same map. Decorators consume the same RNG afterward, so changing spawn counts shifts every subsequent random decision. See [seeding.md](./seeding.md).
 
 ---
 
-## The BSP Algorithm
-
-### Step 1: Recursive Partitioning
-
-The dungeon starts as a single rectangle (the full map). The BSP tree recursively splits this space into smaller regions.
-
-**Split decision logic** (from `dungeon.go:BSPNode.Split()`):
+## Constants and Types
 
 ```go
-// Decide split direction based on shape
-horizontal := rng.Float32() > 0.5
+// game/dungeon.go
+const (
+    MinRoomSize = 6
+    MaxRoomSize = 15
+)
 
-if float32(n.W)/float32(n.H) >= 1.25 {
-    horizontal = false  // Wide region → vertical split
-} else if float32(n.H)/float32(n.W) >= 1.25 {
-    horizontal = true   // Tall region → horizontal split
+type Tile int
+const (
+    TileWall  Tile = iota  // '#'
+    TileFloor              // '.' or a code character
+    TileDoor               // '>'
+)
+
+type Room struct { X, Y, W, H int }
+func (r Room) Center() (int, int)       // midpoint
+func (r Room) Contains(x, y int) bool   // half-open rectangle
+
+type BSPNode struct {
+    X, Y, W, H  int
+    Left, Right *BSPNode
+    Room        *Room
+}
+
+type Dungeon struct {
+    Width, Height int
+    Tiles         [][]Tile // row-major: Tiles[y][x]
+    Rooms         []*Room
+    CodeFile      *CodeFile
 }
 ```
 
-**Split position:**
+Grid size comes from `state.go:generateLevel`:
+
 ```go
-maxSize := n.H - MinRoomSize  // or n.W for vertical
-split := rng.Intn(maxSize-MinRoomSize) + MinRoomSize
+width := max(gs.TermWidth, 40)
+height := max(gs.TermHeight - 3, 20)   // -3 reserves UI bar + message + buffer
 ```
 
-**Recursion:** Each node splits up to **depth 4**, creating up to 16 leaf nodes (though most dungeons have 8-12 due to early termination when regions get too small).
+So the map always has at least 40×20 and usually fills the terminal minus three lines.
 
-**ASCII Diagram: BSP Tree Splitting**
+---
+
+## Step 1: BSP Split (`BSPNode.Split`)
+
+```go
+func (n *BSPNode) Split(rng *rand.Rand, depth int) {
+    if depth <= 0 { return }
+
+    horizontal := rng.Float32() > 0.5
+    if float32(n.W)/float32(n.H) >= 1.25 {
+        horizontal = false                 // wide region → vertical cut
+    } else if float32(n.H)/float32(n.W) >= 1.25 {
+        horizontal = true                  // tall region → horizontal cut
+    }
+
+    maxSize := n.H - MinRoomSize
+    if !horizontal { maxSize = n.W - MinRoomSize }
+    if maxSize <= MinRoomSize { return }   // too small → leaf
+    split := rng.Intn(maxSize-MinRoomSize) + MinRoomSize
+
+    if horizontal {
+        n.Left  = NewBSPNode(n.X, n.Y,           n.W, split)
+        n.Right = NewBSPNode(n.X, n.Y+split,     n.W, n.H-split)
+    } else {
+        n.Left  = NewBSPNode(n.X,        n.Y, split,      n.H)
+        n.Right = NewBSPNode(n.X+split,  n.Y, n.W-split,  n.H)
+    }
+    n.Left.Split(rng, depth-1)
+    n.Right.Split(rng, depth-1)
+}
+```
+
+Two subtle but important rules:
+
+1. **The 1.25 aspect-ratio heuristic** forces rectangles that are too long on one side to split on that axis. Without this, BSP can produce long slivers that fit at most a single 6-wide room.
+2. **Early termination** when `maxSize <= MinRoomSize` turns the node into a leaf instead of splitting. This is why you sometimes see fewer than 16 rooms even though `depth = 4` could theoretically produce `2^4 = 16` leaves.
+
+**Depth-4 tree at full expansion = up to 16 leaves.** In practice, most dungeons have 8–12 rooms depending on how the aspect checks fire.
 
 ```
-Initial map (60x30):
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│                      (root node)                         │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+Initial region (60×27):
+┌────────────────────────────────────────────────────────────┐
+│                          root                              │
+└────────────────────────────────────────────────────────────┘
 
-After 1st split (vertical):
-┌─────────────────────────┬────────────────────────────────┐
-│                         │                                │
-│      Left child         │       Right child              │
-│                         │                                │
-└─────────────────────────┴────────────────────────────────┘
+Cut 1 (vertical, aspect forced):
+┌───────────────────┬────────────────────────────────────────┐
+│       L           │                  R                     │
+└───────────────────┴────────────────────────────────────────┘
 
-After 2nd split (both children split horizontally):
-┌─────────────────────────┬────────────────────────────────┐
-│         A               │            C                   │
-├─────────────────────────┼────────────────────────────────┤
-│         B               │            D                   │
-└─────────────────────────┴────────────────────────────────┘
+Cut 2 (both children, direction randomized, then aspect-checked):
+┌───────────────────┬────────────────────┬───────────────────┐
+│        LL         │         RL         │                   │
+├───────────────────┤                    │        RR         │
+│        LR         ├────────────────────┤                   │
+│                   │         RL2        │                   │
+└───────────────────┴────────────────────┴───────────────────┘
 
-After 4 splits (depth 4), you have 8-16 leaf regions.
+...continues for up to depth 4.
 ```
 
 ---
 
-### Step 2: Room Creation
+## Step 2: Create Rooms (`BSPNode.CreateRooms`)
 
-Once the tree is fully split, each **leaf node** becomes a room.
-
-**Room sizing logic** (from `dungeon.go:BSPNode.CreateRooms()`):
+Called once after the full tree is built. Post-order traversal on internal nodes, room creation on leaves.
 
 ```go
-// Room must fit within node with padding
-maxW := min(MaxRoomSize, n.W-2)  // MaxRoomSize = 15
+if n.W < MinRoomSize+2 || n.H < MinRoomSize+2 { return }   // skip tiny regions
+
+maxW := min(MaxRoomSize, n.W-2)   // at least 1 tile padding on each side
 maxH := min(MaxRoomSize, n.H-2)
 
-// Randomize dimensions (MinRoomSize = 6)
-roomW := rng.Intn(maxW-MinRoomSize+1) + MinRoomSize
+roomW := rng.Intn(maxW-MinRoomSize+1) + MinRoomSize   // [6, 15]
 roomH := rng.Intn(maxH-MinRoomSize+1) + MinRoomSize
 
-// Randomize position within node (with 1-tile padding)
-roomX := n.X + rng.Intn(n.W-roomW-1) + 1
+roomX := n.X + rng.Intn(n.W-roomW-1) + 1              // leave 1-tile border
 roomY := n.Y + rng.Intn(n.H-roomH-1) + 1
 ```
 
-**Result:** Rooms are 6-15 tiles in each dimension, randomly positioned within their BSP region.
+Why the `-2` and `+1`? So rooms never touch the BSP partition boundary. Sibling corridors need a wall to cut through.
 
-**ASCII Diagram: Rooms in Leaf Nodes**
+`n.Room` is set on each leaf. `GetRoom()` walks down from any node to find a representative room; `GetRooms()` returns the flat list.
 
 ```
-Leaf nodes (A, B, C, D) with rooms placed inside:
+Leaf region (20×10) with a 9×6 room placed inside:
 
-┌─────────────────────────┬────────────────────────────────┐
-│ A                       │ C                              │
-│   ┌──────────┐          │    ┌────────┐                 │
-│   │  Room 1  │          │    │ Room 3 │                 │
-│   │          │          │    └────────┘                 │
-│   └──────────┘          │                                │
-├─────────────────────────┼────────────────────────────────┤
-│ B                       │ D                              │
-│      ┌─────────┐        │        ┌──────────┐           │
-│      │ Room 2  │        │        │  Room 4  │           │
-│      └─────────┘        │        └──────────┘           │
-└─────────────────────────┴────────────────────────────────┘
-
-Rooms are carved as TileFloor. Everything else is TileWall.
+┌────────────────────┐
+│ leaf node          │
+│   ┌───────────┐    │
+│   │           │    │
+│   │   Room    │    │   <- roomW × roomH chosen randomly within [6,15]
+│   │           │    │
+│   └───────────┘    │
+│                    │
+└────────────────────┘
 ```
 
 ---
 
-### Step 3: Corridor Carving
+## Step 3: Carve Rooms
 
-Rooms are connected by traversing the BSP tree and linking sibling nodes.
+After `CreateRooms`, `GenerateDungeon` flips every tile inside every room to `TileFloor`:
 
-**Connection logic** (from `dungeon.go:connectRooms()`):
+```go
+for _, room := range d.Rooms {
+    for y := room.Y; y < room.Y+room.H; y++ {
+        for x := room.X; x < room.X+room.W; x++ {
+            if y >= 0 && y < height && x >= 0 && x < width {
+                d.Tiles[y][x] = TileFloor
+            }
+        }
+    }
+}
+```
+
+Rooms are always rectangular and axis-aligned.
+
+---
+
+## Step 4: Corridor Carving (`connectRooms`)
+
+Post-order traversal. At every internal node we pick a room from the left subtree and one from the right subtree (`GetRoom` returns the first one found via DFS), then cut an L-shaped corridor between their centers. The randomness of which leg goes first makes the corridors feel less gridlike.
 
 ```go
 func connectRooms(node *BSPNode, d *Dungeon, rng *rand.Rand) {
-    if node.Left == nil || node.Right == nil {
-        return  // Leaf node, no children to connect
-    }
-
-    // Recursively connect children first
+    if node.Left == nil || node.Right == nil { return }
     connectRooms(node.Left, d, rng)
     connectRooms(node.Right, d, rng)
 
-    // Get representative rooms from left and right subtrees
-    leftRoom := node.Left.GetRoom()
+    leftRoom  := node.Left.GetRoom()
     rightRoom := node.Right.GetRoom()
+    if leftRoom == nil || rightRoom == nil { return }
 
-    // Connect room centers with L-shaped corridor
     x1, y1 := leftRoom.Center()
     x2, y2 := rightRoom.Center()
 
     if rng.Float32() > 0.5 {
-        d.carveHorizontalCorridor(x1, x2, y1)  // Move right/left
-        d.carveVerticalCorridor(y1, y2, x2)    // Then up/down
+        d.carveHorizontalCorridor(x1, x2, y1)
+        d.carveVerticalCorridor(y1, y2, x2)
     } else {
-        d.carveVerticalCorridor(y1, y2, x1)    // Move up/down
-        d.carveHorizontalCorridor(x1, x2, y2)  // Then right/left
+        d.carveVerticalCorridor(y1, y2, x1)
+        d.carveHorizontalCorridor(x1, x2, y2)
     }
 }
 ```
 
-**ASCII Diagram: L-Shaped Corridors**
+Corridors are 1 tile wide and may overlap with each other or with rooms. That's fine — re-setting a floor tile to floor is a no-op. `carveHorizontalCorridor` / `carveVerticalCorridor` sort the endpoints and bounds-check before writing.
+
+**Connectivity proof sketch:** post-order recursion guarantees that before you connect siblings, each subtree is internally connected. So connecting the two representative rooms joins the subtrees. By induction the whole tree is connected.
 
 ```
-Connecting Room 1 and Room 3:
+Two leaves connected with an L-shape, horizontal-first:
 
-┌─────────────────────────┬────────────────────────────────┐
-│                         │                                │
-│   ┌──────────┐          │    ┌────────┐                 │
-│   │  Room 1  │··········│····│ Room 3 │                 │
-│   │     *    │          │    │   *    │                 │
-│   └──────────┘          │    └────────┘                 │
-├─────────────────────────┼────────────────────────────────┤
-│                         │                                │
-│      ┌─────────┐        │        ┌──────────┐           │
-│      │ Room 2  │        │        │  Room 4  │           │
-│      │    *    │········│········│     *    │           │
-│      └─────────┘        │        └──────────┘           │
-└─────────────────────────┴────────────────────────────────┘
+┌────────────┐            ┌────────────┐
+│  Room A    │            │  Room B    │
+│     *──────────────┐    │     *      │
+│            │       │    │     │      │
+└────────────┘       │    └─────│──────┘
+                     │          │
+                     └──────────┘
 
-* = room center
-· = corridor (carved as TileFloor)
-
-Room 1 → Room 3: Horizontal first, then vertical
-Room 2 → Room 4: Vertical first, then horizontal (randomized)
+* = room center      ── = carved corridor
 ```
-
-**Why L-shaped?**
-- Guarantees connectivity without complex pathfinding
-- Creates interesting layouts (not just straight lines)
-- Works well with BSP structure (connecting across splits)
 
 ---
 
-## Key Constants
+## Step 5: Decorations (in `state.go:generateLevel`)
 
-From `game/dungeon.go`:
+After `GenerateDungeon`, the decorator does the rest of the work:
 
 ```go
-const (
-    MinRoomSize = 6   // Minimum room width/height
-    MaxRoomSize = 15  // Maximum room width/height
-)
-```
+gs.Dungeon = GenerateDungeon(width, height, gs.RNG, codeFile)
 
-**BSP split depth:** 4 (hard-coded in `GenerateDungeon()`)
+// Visibility arrays
+gs.Visible = make([][]bool, height)
+gs.Explored = make([][]bool, height)
+...
 
----
-
-## Tile Types
-
-```go
-const (
-    TileWall  Tile = iota  // '#' - Impassable
-    TileFloor              // '.' or code char - Walkable
-    TileDoor               // '>' - Stairs to next level
-)
-```
-
-**Tile assignment:**
-1. Initialize entire map as `TileWall`
-2. Carve rooms as `TileFloor`
-3. Carve corridors as `TileFloor`
-4. Place one `TileDoor` in the last room
-
----
-
-## Dungeon Function Reference
-
-### `GenerateDungeon(width, height int, rng *rand.Rand, codeFile *CodeFile) *Dungeon`
-
-**Purpose:** Main entry point for dungeon generation.
-
-**Steps:**
-1. Initialize tile map (all walls)
-2. Create BSP root node
-3. Split tree recursively (depth 4)
-4. Create rooms in leaf nodes
-5. Connect rooms with corridors
-6. Return `Dungeon` struct
-
-**Returns:** `*Dungeon` with tile map, room list, and code file reference.
-
-### `BSPNode.Split(rng *rand.Rand, depth int)`
-
-**Purpose:** Recursively partition the map into regions.
-
-**Parameters:**
-- `rng` — Random number generator (seeded)
-- `depth` — Remaining recursion depth (stops at 0)
-
-**Behavior:**
-- Decides split direction (horizontal vs. vertical)
-- Picks random split position
-- Creates left and right children
-- Recurses on both children
-
-**Early termination:** If region is too small to split (< 2*MinRoomSize), returns without splitting.
-
-### `BSPNode.CreateRooms(rng *rand.Rand)`
-
-**Purpose:** Place rooms in leaf nodes.
-
-**Behavior:**
-- If node has children, recurse on them
-- If leaf node, create a room with random size/position
-- Skip if node is too small (< MinRoomSize+2 in either dimension)
-
-### `connectRooms(node *BSPNode, d *Dungeon, rng *rand.Rand)`
-
-**Purpose:** Link rooms with L-shaped corridors.
-
-**Behavior:**
-- Post-order traversal of BSP tree
-- Connect left and right subtree representatives
-- Randomly choose horizontal-first or vertical-first
-
-### `Dungeon.carveHorizontalCorridor(x1, x2, y int)`
-
-**Purpose:** Carve a horizontal line of floor tiles.
-
-**Behavior:** Sets `Tiles[y][x] = TileFloor` for all x between x1 and x2.
-
-### `Dungeon.carveVerticalCorridor(y1, y2, x int)`
-
-**Purpose:** Carve a vertical line of floor tiles.
-
-**Behavior:** Sets `Tiles[y][x] = TileFloor` for all y between y1 and y2.
-
-### `Dungeon.PlaceDoor(rng *rand.Rand) (int, int)`
-
-**Purpose:** Place the exit door in the last room.
-
-**Behavior:**
-- Picks the last room in the room list
-- Randomizes position within the room (not on edges)
-- Sets tile to `TileDoor`
-- Returns door coordinates
-
----
-
-## Code Text Backgrounds
-
-Each dungeon level displays code from one of the scanned files as the floor background.
-
-**Rendering logic** (from `game.go:render()`):
-
-```go
-// Use both y and x/40 to show 2x more code lines
-lineIdx := (y*2 + x/40) % len(codeLines)
-line := codeLines[lineIdx]
-
-charIdx := x % 40
-if x >= 40 {
-    charIdx = x - 40
+// Player in Rooms[0]
+if len(gs.Dungeon.Rooms) > 0 {
+    room := gs.Dungeon.Rooms[0]
+    px, py := room.Center()
+    // NewPlayer on first level, reposition on subsequent levels
 }
 
-if charIdx < len(line) {
-    ch = rune(line[charIdx])
+gs.DoorX, gs.DoorY = gs.Dungeon.PlaceDoor(gs.RNG)        // last room
+
+gs.MergeConflictX, gs.MergeConflictY = gs.randomFloorTile() // fire trap
+
+// YAML-driven spawns
+registry := GetMonsterRegistry()
+for i := 0; i < 3+gs.Level*2; i++ {
+    x, y := gs.randomFloorTile()
+    def := registry.GetRandomMonster(gs.RNG)
+    gs.Enemies = append(gs.Enemies, NewMonsterFromDef(def, x, y))
+}
+for _, def := range registry.GetUniqueMonsters() {
+    x, y := gs.randomFloorTile()
+    gs.Enemies = append(gs.Enemies, NewMonsterFromDef(def, x, y))
+}
+
+// Potions
+for i := 0; i < 2+gs.Level+gs.RNG.Intn(2); i++ {
+    x, y := gs.randomFloorTile()
+    gs.Potions = append(gs.Potions, NewPotion(x, y))
+}
+
+gs.MergeMarkerX, gs.MergeMarkerY = findCentralRoomCenter(gs.Dungeon)
+gs.updateVisibility()
+```
+
+`randomFloorTile` picks a random room, then a random tile inside it, retries up to 100 times to avoid the player, door, and merge-conflict trap positions. Falls back to map center on failure.
+
+### `PlaceDoor`
+
+```go
+room := d.Rooms[len(d.Rooms)-1]                  // always the last room in the list
+x := room.X + rng.Intn(room.W-2) + 1             // 1-tile margin from walls
+y := room.Y + rng.Intn(room.H-2) + 1
+d.Tiles[y][x] = TileDoor
+```
+
+### `findCentralRoomCenter`
+
+Returns the center of the room whose center is closest (Euclidean-squared) to the geometric center of the whole map. This is what `--merge` mode uses to place its red `X` marker, so the warning and trigger logic operates on a visually prominent room rather than a random corner.
+
+### `findNearestFloorTile`
+
+BFS from a starting point, 8-directional, returning the first `TileFloor` it finds. Not used by the game loop today, but available for modders who want to snap an off-grid position to the nearest walkable tile.
+
+---
+
+## Code Text on Floors
+
+The floor isn't rendered as `.` by default — it's rendered as characters from a real source file in your repository. From `game.go:render`:
+
+```go
+if len(codeLines) > 0 {
+    // 2× line density: each tile row can show 2 different source lines
+    lineIdx := (y*2 + x/40) % len(codeLines)
+    line := codeLines[lineIdx]
+    charIdx := x % 40
+    if x >= 40 { charIdx = x - 40 }
+    if charIdx < len(line) { ch = rune(line[charIdx]) } else { ch = '.' }
 } else {
-    ch = '.'  // Fallback if line is shorter than x position
+    ch = '.'
 }
 ```
 
-**Result:** Floor tiles show actual code characters, making each level visually unique.
+The code file for the floor is chosen by level:
+
+```go
+codeFile = &gs.CodeFiles[(gs.Level-1) % len(gs.CodeFiles)]
+```
+
+So each of the 5 levels uses a different top-5 file, cycling if there are fewer.
 
 ---
 
-## Modifying Dungeon Generation
+## Modifying Generation
 
-### Change room sizes
-
-Edit `game/dungeon.go`:
-
+### Bigger or smaller rooms
 ```go
+// game/dungeon.go
 const (
-    MinRoomSize = 8   // Make rooms larger
-    MaxRoomSize = 20
+    MinRoomSize = 8   // was 6
+    MaxRoomSize = 20  // was 15 — be careful, doesn't fit on small terminals
 )
 ```
 
-### Change BSP depth (more/fewer rooms)
-
-Edit `game/dungeon.go:GenerateDungeon()`:
-
+### More or fewer rooms
 ```go
-root.Split(rng, 5)  // Increase depth = more rooms
+// game/dungeon.go:GenerateDungeon
+root.Split(rng, 5)   // depth 4 → 5
 ```
+Going past depth 5 is almost always counterproductive: the `maxSize <= MinRoomSize` guard kicks in and many leaves refuse to split, but when combined with the 6-tile minimum room size you tend to get lots of hallway dungeons without the aesthetic you wanted.
 
-**Warning:** Depth 5+ can create very small rooms or fail to generate.
-
-### Change corridor style
-
-Edit `game/dungeon.go:connectRooms()`:
-
-Remove the random L-shape choice to always go horizontal-first:
-
+### Straight-line corridors (no random leg order)
 ```go
+// game/dungeon.go:connectRooms — replace the if/else
 d.carveHorizontalCorridor(x1, x2, y1)
 d.carveVerticalCorridor(y1, y2, x2)
 ```
 
-### Add room decorations
-
-Edit `game/state.go:generateLevel()` after room carving:
-
-```go
-// Place pillars in room centers
-for _, room := range gs.Dungeon.Rooms {
-    cx, cy := room.Center()
-    gs.Dungeon.Tiles[cy][cx] = TileWall
-}
-```
+### Non-rectangular rooms / pillars
+After the room-carving loop in `GenerateDungeon`, stamp extra `TileWall`s inside rooms. Careful: you can block connectivity if you wall off a room center before corridor carving. Add decorations *after* `connectRooms`.
 
 ---
 
 ## Testing Dungeon Generation
 
-**Seed a specific dungeon:**
+Because the RNG is injected, unit-testing is straightforward:
 
 ```go
 rng := rand.New(rand.NewSource(12345))
-dungeon := GenerateDungeon(80, 40, rng, nil)
+d := GenerateDungeon(80, 27, rng, nil)
 
-// Verify room count
-if len(dungeon.Rooms) < 5 {
-    t.Errorf("Expected at least 5 rooms, got %d", len(dungeon.Rooms))
+// basic sanity
+if len(d.Rooms) < 4 { t.Fatalf("expected at least 4 rooms, got %d", len(d.Rooms)) }
+
+// connectivity via BFS from player start to door
+start := d.Rooms[0].Center()
+doorX, doorY := d.PlaceDoor(rng)
+if !reachable(d, start, [2]int{doorX, doorY}) {
+    t.Fatal("door unreachable from player start")
 }
 ```
 
-**Check connectivity:**
-
-Use BFS to verify all rooms are reachable from the first room:
-
-```go
-visited := make(map[[2]int]bool)
-queue := [][2]int{{startX, startY}}
-
-for len(queue) > 0 {
-    p := queue[0]
-    queue = queue[1:]
-    
-    if dungeon.IsWalkable(p[0], p[1]) {
-        visited[[2]int{p[0], p[1]}] = true
-        // Add neighbors to queue...
-    }
-}
-
-// Check if door is reachable
-if !visited[[2]int{doorX, doorY}] {
-    t.Error("Door is not reachable from start")
-}
-```
+A handy constructor for tests: `newTestDungeon(w, h)` in `state_test.go` builds an all-floor dungeon with no rooms for isolated unit testing of movement/combat.
 
 ---
 
 ## Common Pitfalls
 
-1. **Rooms clipping out of bounds:** Always check `x >= 0 && x < Width` before setting tiles.
-2. **Disconnected rooms:** Rare, but can happen if `GetRoom()` returns nil. Ensure leaf nodes always create valid rooms.
-3. **Overlapping corridors:** Not a bug—corridors can overlap, creating irregular shapes.
-4. **Terminal too small:** Enforce minimum size (40x20) in `state.go:generateLevel()`.
+- **Out-of-bounds writes:** all carving helpers bounds-check; anything you add should too. `Tiles[y][x]` (not `[x][y]`).
+- **Disconnected rooms:** rare, but if you change how `GetRoom` resolves representatives you can end up with sibling subtrees where the chosen nodes lie on opposite sides of a barely-carved corridor. Run the BFS connectivity check in tests.
+- **Too-small terminals:** `generateLevel` enforces a 40×20 minimum. Don't lower this — the BSP at depth 4 with MinRoomSize 6 needs that much room to reliably produce any rooms at all.
 
 ---
 
 ## Further Reading
 
-- [BSP Dungeon Generation Tutorial](http://www.roguebasin.com/index.php?title=Basic_BSP_Dungeon_generation) (RogueBasin)
-- [architecture.md](./architecture.md) — System overview
-- [modding.md](./modding.md) — How to customize the game
+- [RogueBasin: Basic BSP Dungeon Generation](http://www.roguebasin.com/index.php?title=Basic_BSP_Dungeon_generation)
+- [architecture.md](./architecture.md) — where BSP sits in the stack
+- [seeding.md](./seeding.md) — why same seed ⇒ same map
+- [modding.md](./modding.md) — adding content without breaking determinism
